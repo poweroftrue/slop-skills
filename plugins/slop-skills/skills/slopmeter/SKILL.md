@@ -68,9 +68,9 @@ For existing findings, preserve their numbers and P-levels. Verify current code 
 
 For a fresh review, report only supported open findings. If none survive verification, write exactly: `No open product-impacting findings.`
 
-## Report concisely
+## Final answer contract
 
-Use exactly this shape in ordinary chat:
+In every Codex chat or CLI response—including PR reviews—use exactly this shape. A PR target alone does not make the turn a dedicated review surface. Only an explicit higher-priority machine-output schema may replace this template.
 
 ```markdown
 N. **P# — Product-readable title**
@@ -87,4 +87,6 @@ N. **P# — Product-readable title**
 
 Use one short sentence per field whenever possible. Add a second only when needed to explain the trigger. Use the four labels exactly. Do not add a preamble, repeated summary, long evidence dump, or separate sources section.
 
-When external research materially supports a finding, put one direct source link inside the relevant technical sentence. If a dedicated review surface requires another schema, follow that schema while preserving the same brevity, evidence bar, and product-readable language.
+Keep verification notes internal. Do not emit generic review fields such as `[P#]` headings, file-and-line titles, `Technical explanation`, `Trigger/input/environment`, `Affected path`, `Confidence`, or `Evidence`. Fold only decisive details into the four required fields.
+
+When external research materially supports a finding, put one direct source link inside the relevant technical sentence.
