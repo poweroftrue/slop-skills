@@ -1,0 +1,7 @@
+interface:
+  display_name: "Deslop"
+  short_description: "Remove code slop without changing behavior"
+  default_prompt: "Use $deslop to simplify the changed code and apply behavior-preserving cleanup fixes."
+
+policy:
+  allow_implicit_invocation: false

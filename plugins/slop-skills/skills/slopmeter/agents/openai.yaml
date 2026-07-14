@@ -1,0 +1,7 @@
+interface:
+  display_name: "Slopmeter"
+  short_description: "Research deeply and review without touching code"
+  default_prompt: "Use $slopmeter to research and review this change for concrete product-impacting defects without modifying code."
+
+policy:
+  allow_implicit_invocation: false

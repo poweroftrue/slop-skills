@@ -1,0 +1,33 @@
+{
+  "name": "slop-skills",
+  "version": "0.1.0",
+  "description": "Two focused Codex code-review skills: Deslop changes code; Slopmeter only reviews it.",
+  "author": {
+    "name": "poweroftrue",
+    "url": "https://github.com/poweroftrue"
+  },
+  "homepage": "https://github.com/poweroftrue/slop-skills",
+  "repository": "https://github.com/poweroftrue/slop-skills",
+  "keywords": [
+    "codex",
+    "code-review",
+    "simplification",
+    "maintainability"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Slop Skills",
+    "shortDescription": "Clean code or review it without touching it.",
+    "longDescription": "Deslop applies behavior-preserving cleanup. Slopmeter performs a research-first, strictly read-only product review.",
+    "developerName": "poweroftrue",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": [
+      "Use $deslop to simplify this change.",
+      "Use $slopmeter to review this PR without changing code."
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "slop-skills",
+  "interface": {
+    "displayName": "Slop Skills"
+  },
+  "plugins": [
+    {
+      "name": "slop-skills",
+      "source": {
+        "source": "local",
+        "path": "./plugins/slop-skills"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
