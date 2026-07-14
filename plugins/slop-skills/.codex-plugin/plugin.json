@@ -1,6 +1,6 @@
 {
   "name": "slop-skills",
-  "version": "0.1.0",
+  "version": "0.1.0+codex.20260714211124",
   "description": "Two focused Codex code-review skills: Deslop changes code; Slopmeter only reviews it.",
   "author": {
     "name": "poweroftrue",
