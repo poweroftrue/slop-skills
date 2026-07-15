@@ -42,6 +42,14 @@ Treat each candidate as a verification goal. Before assigning a P-level, state t
 
 Act autonomously: trace the real path, inspect relevant history and logs, run dry-runs or exact code in memory, monkeypatch, stub, or trace without writing, and send deliberately invalid, fake-credential, non-billing HTTP requests with negative controls when they cannot create data or trigger work. Do not ask before these safe checks.
 
+### Gate application-runtime evidence
+
+For any claim about an in-process value or behavior that application loading can alter, require a successful reproduction through the repository's application-loaded boot path and pinned environment. First inspect its documented runner and existing containers or toolchains; reuse them read-only rather than substituting the host interpreter.
+
+Do not assign a P-level unless the application-loaded verification command exits successfully and observes the changed call with the real input type plus the active method owner or source location. A bare language REPL or isolated library probe is only a negative control because framework extensions, initializers, monkeypatches, serializers, type casting, configuration, and load order can change its result. A failed or unavailable application boot is missing evidence, never confirmation: do not combine bare-runtime output, static reachability, tests, or documentation to replace it. Omit the candidate when this gate cannot be satisfied.
+
+This gate does not block an explicit rejection at an external dependency boundary only when all three are proven: pinned upstream source or documentation contains the rejecting branch or error for the exact input, the repository's real call supplies that input, and repository configuration does not override the behavior. Absence from documentation, an API schema, or examples; a generic recommendation; and an inferred unsupported path are never explicit rejection. In particular, prove endpoint nonexistence with a safe live response, upstream router source, or an observed failure—not by its omission from docs or OpenAPI.
+
 Stop when direct evidence proves or falsifies both the trigger and product impact. Documentation omissions, mocks, and inference do not prove runtime failure. If the remaining decisive check could mutate data, trigger work, bill, or materially consume quota, stop before it and omit the unresolved claim. Require a reproduced failure, observed incident, or explicit authoritative rejection before assigning P0 or P1.
 
 ## Phase 2 — Keep only real findings
