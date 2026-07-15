@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "governance": "Change registry cases only when the user explicitly requests that test change.",
+  "cases": [
+    {
+      "id": "runtime-formatting-after-app-boot",
+      "fixture": "runtime-formatting-after-app-boot",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "clean"
+      }
+    },
+    {
+      "id": "strict-boundary-object-rejection",
+      "fixture": "strict-boundary-object-rejection",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(queue|enqueue|argument)",
+          "(?i)(reject|serializ|domain object|accepts only|scalar)"
+        ]
+      }
+    },
+    {
+      "id": "compatible-undocumented-route",
+      "fixture": "compatible-undocumented-route",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "clean"
+      }
+    },
+    {
+      "id": "unproven-full-scan-cost",
+      "fixture": "unproven-full-scan-cost",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "clean"
+      }
+    },
+    {
+      "id": "lost-update-registry-race",
+      "fixture": "lost-update-registry-race",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(concurr|race|interleav|non-atomic)",
+          "(?i)(lose|lost|overwrite|drop|discard|disappear)"
+        ]
+      }
+    }
+  ]
+}

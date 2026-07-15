@@ -7,12 +7,18 @@ Two focused Codex skills:
 
 ## Source of truth
 
-Edit and commit only the plugin source in this repository:
+For skill and plugin behavior, edit and commit only the canonical plugin source
+in this repository:
 
 - `plugins/slop-skills/skills/deslop/`
 - `plugins/slop-skills/skills/slopmeter/`
 - `plugins/slop-skills/.codex-plugin/plugin.json`
 - `.agents/plugins/marketplace.json`
+
+The owner-controlled Slopmeter regression registry and its self-contained
+fixtures live under `tests/slopmeter/`. Repository agents must follow
+`AGENTS.md`: registry semantics change only on explicit user request, and every
+Slopmeter skill change must pass the full suite.
 
 Do not edit generated Codex copies under `~/.codex/plugins/cache/` or
 `~/.codex/.tmp/marketplaces/`. Do not install or copy these skills separately
@@ -123,7 +129,20 @@ git diff --check
 If `/usr/bin/python3` is unavailable, choose another interpreter only after
 `<python> -c 'import yaml'` succeeds.
 
-### 3. Cachebust plugin payload changes
+### 3. Run the Slopmeter regression gate
+
+After any Slopmeter skill change, run every owner-approved end-to-end case
+against the canonical source skill:
+
+```bash
+tests/slopmeter/run_e2e.sh
+```
+
+A partial `--case` run does not satisfy this release gate. Do not alter case
+fixtures or expectations to make a skill change pass unless the user explicitly
+requests that test change.
+
+### 4. Cachebust plugin payload changes
 
 When a bundled skill, manifest capability, or other plugin payload changes,
 update the manifest cachebuster exactly once:
@@ -143,21 +162,21 @@ suffix. Do not append multiple cachebusters or manually edit a cached plugin.
 README-only or repository-documentation changes do not alter the plugin payload,
 so they do not require a cachebuster or local plugin reinstall.
 
-### 4. Review, commit, and push
+### 5. Review, commit, and push
 
 Before committing, confirm that only intended source files and the generated
 manifest version changed:
 
 ```bash
 git diff --check
-git diff -- plugins/slop-skills README.md
+git diff -- AGENTS.md README.md plugins/slop-skills tests/slopmeter
 git status --short --branch
 ```
 
 Commit the skill and manifest changes together, then push `main`:
 
 ```bash
-git add README.md plugins/slop-skills
+git add AGENTS.md README.md plugins/slop-skills tests/slopmeter
 git commit -m "Describe the Slop Skills change"
 git push origin main
 git status --short --branch
@@ -165,7 +184,7 @@ git status --short --branch
 
 Do not use the example commit message blindly; describe the actual change.
 
-### 5. Refresh the installed plugin
+### 6. Refresh the installed plugin
 
 For plugin payload releases, refresh the Git marketplace and reinstall from the
 configured `slop-skills` marketplace:
