@@ -39,6 +39,50 @@
       }
     },
     {
+      "id": "indexed-translation-n-plus-one",
+      "fixture": "indexed-translation-n-plus-one",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(n\\+1|translation quer|per product)",
+          "(?i)(20|preload|batch)"
+        ]
+      }
+    },
+    {
+      "id": "batched-translation-preload",
+      "fixture": "batched-translation-preload",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "clean"
+      }
+    },
+    {
+      "id": "unbounded-first-render",
+      "fixture": "unbounded-first-render",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(50,?000|all orders|unbounded|materializ)",
+          "(?i)((first|initial)[ -](page|render)|paginat|bounded (page|path|query)|limit)"
+        ]
+      }
+    },
+    {
+      "id": "hot-lookup-missing-index",
+      "fixture": "hot-lookup-missing-index",
+      "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(full (table )?scan|missing.{0,20}index|unindexed|scans? [0-9,]+ rows|composite index|indexed access)",
+          "(?i)(1,?200,?000|780|200 ?ms|latency target)"
+        ]
+      }
+    },
+    {
       "id": "lost-update-registry-race",
       "fixture": "lost-update-registry-race",
       "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",

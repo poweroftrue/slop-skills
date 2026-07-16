@@ -1,0 +1,7 @@
+require_relative "../app/order_index"
+
+store = OrderStore.new(total_orders: 50_000)
+rows = OrderIndex.new(store).call(status: "paid")
+
+puts "first_render=true store_orders=50000 page_size=#{OrderIndex::PAGE_SIZE} rows_returned=#{rows.size}"
+puts "rows_examined=#{store.rows_examined} objects_materialized=#{store.objects_materialized} index_used=#{store.index_used || "none"}"

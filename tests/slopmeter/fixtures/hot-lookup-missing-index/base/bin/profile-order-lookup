@@ -1,0 +1,14 @@
+require_relative "../app/order_lookup"
+
+repository = OrderRepository.new
+lookup = OrderLookup.new(repository)
+parameters = lookup.method(:call).parameters.map(&:last)
+if parameters.include?(:gateway_reference)
+  lookup.call(store_id: 9, gateway_reference: "provider-7788")
+else
+  lookup.call(store_id: 9, number: "O-900")
+end
+plan = repository.last_plan
+
+puts "app_loaded=true table_rows=#{OrderRepository::TABLE_ROWS} target_ms=200"
+puts "access=#{plan.access} key=#{plan.key || "none"} rows_examined=#{plan.rows_examined} actual_ms=#{plan.actual_ms}"

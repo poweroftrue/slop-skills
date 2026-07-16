@@ -1,0 +1,10 @@
+require_relative "../app/order_index"
+
+names = (1..OrderIndex::PAGE_SIZE).to_h do |product_id|
+  [product_id, { en: "Product #{product_id}", ar: "منتج #{product_id}" }]
+end
+query_log = QueryLog.new
+rows = OrderIndex.new(OrderRepository.new(names: names, query_log: query_log)).call
+
+puts "page_size=#{OrderIndex::PAGE_SIZE} rows=#{rows.size} products=#{rows.sum { |row| row.product_names&.size.to_i }}"
+puts "total_queries=#{query_log.entries.size} translation_queries=#{query_log.count("product_translations")} indexes_used=#{query_log.all_indexed?}"

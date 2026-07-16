@@ -12,6 +12,10 @@ The authoritative case list is `cases.json`:
 | `strict-boundary-object-rejection` | One finding | A pinned external boundary explicitly rejects the object supplied by the changed call. |
 | `compatible-undocumented-route` | Clean | Pinned router source accepts a compatibility route even though public docs omit it. |
 | `unproven-full-scan-cost` | Clean | A full scan has no repository-established product-volume or latency failure. |
+| `indexed-translation-n-plus-one` | One finding | An app-loaded 20-product page proves one indexed translation query per product. |
+| `batched-translation-preload` | Clean | The same product-name path batches translations and keeps query count constant. |
+| `unbounded-first-render` | One finding | A bounded first page materializes all 50,000 repository-established records. |
+| `hot-lookup-missing-index` | One finding | A representative plan proves the new lookup scans 1.2 million rows and violates its target. |
 | `lost-update-registry-race` | One finding | Split read/write state updates lose data under a reachable concurrent sequence. |
 
 Registry cases, fixtures, prompts, and expectations are owner-controlled. Add,
