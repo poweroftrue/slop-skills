@@ -1,0 +1,33 @@
+require "json"
+require_relative "../app/order_processor"
+
+class RecordingNotifier
+  attr_reader :calls
+
+  def initialize
+    @calls = []
+  end
+
+  def delivered(order_id)
+    calls << { event: "delivered", order_id: order_id }
+  end
+end
+
+payload = JSON.parse($stdin.read)
+notifier = RecordingNotifier.new
+processor = OrderProcessor.new(notifier: notifier)
+method = processor.method(:call)
+
+begin
+  result = processor.call(payload)
+  error = "none"
+rescue StandardError => exception
+  result = "error"
+  error = "#{exception.class}: #{exception.message}"
+end
+
+puts "runtime=docker-compose app_booted=true egress=blocked sample=production-readonly-sanitized"
+puts "input_type=#{payload.class} input_keys=#{payload.keys.join(",")}"
+puts "method_owner=#{method.owner} source_location=#{method.source_location.join(":")}"
+puts "result=#{result} error=#{error}"
+puts "outbound_adapter=#{notifier.class} external_requests=0 recorded_calls=#{notifier.calls.length}"

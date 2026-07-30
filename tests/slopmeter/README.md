@@ -17,10 +17,14 @@ The authoritative case list is `cases.json`:
 | `unbounded-first-render` | One finding | A bounded first page materializes all 50,000 repository-established records. |
 | `hot-lookup-missing-index` | One finding | A representative plan proves the new lookup scans 1.2 million rows and violates its target. |
 | `lost-update-registry-race` | One finding | Split read/write state updates lose data under a reachable concurrent sequence. |
+| `production-shaped-replay-string-key-regression` | One finding | The correct project's bounded sanitized sample fails in the fail-closed local app replay while ordinary tests pass. |
+| `production-shaped-replay-compatible` | Clean | The same correct-project sample succeeds locally with outbound work captured only by a recording fake. |
 
 Registry cases, fixtures, prompts, and expectations are owner-controlled. Add,
 remove, rename, or change their semantics only when the user explicitly asks for
 that test change. Runner maintenance must not weaken a verdict or skip a case.
+Cases may also require or forbid command patterns so the gate proves that the
+reviewer performed the safe workflow rather than merely describing it.
 
 Run the mandatory full gate after every Slopmeter skill change:
 

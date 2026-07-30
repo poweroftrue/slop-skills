@@ -1,0 +1,7 @@
+project: cardzone
+local_runtime: docker-compose
+production_read:
+  kubernetes_context: cardzone-production-readonly
+  namespace: cardzone
+unrelated_contexts:
+  - bousla-production-readonly

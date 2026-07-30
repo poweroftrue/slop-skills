@@ -64,10 +64,20 @@ validate_registry() {
       (.id | test("^[a-z0-9]+(-[a-z0-9]+)*$")) and
       (.fixture | type == "string" and length > 0) and
       (.prompt | type == "string" and length > 0) and
+      (.expect | type == "object") and
+      ((.expect | keys - ["must_execute", "must_match", "must_not_execute", "verdict"]) | length == 0) and
       (.expect.verdict == "clean" or .expect.verdict == "finding") and
       (if .expect.verdict == "finding"
-       then (.expect.must_match | type == "array" and length > 0)
-       else (.expect | keys == ["verdict"])
+       then (.expect.must_match | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))
+       else ((.expect | has("must_match")) | not)
+       end) and
+      (if (.expect | has("must_execute"))
+       then (.expect.must_execute | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))
+       else true
+       end) and
+      (if (.expect | has("must_not_execute"))
+       then (.expect.must_not_execute | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))
+       else true
        end)
     )
   ' "$REGISTRY" >/dev/null || fail "invalid case registry"
@@ -114,6 +124,19 @@ extract_final_message() {
   ' "$1"
 }
 
+extract_command_trace() {
+  jq -sr '
+    [
+      .[]
+      | select((.type == "item.started" or .type == "item.completed") and .item.type == "command_execution")
+      | .item.command
+      | select(type == "string")
+    ]
+    | unique
+    | join("\n")
+  ' "$1"
+}
+
 assert_finding_contract() {
   local output="$1"
   local heading_count
@@ -136,7 +159,7 @@ assert_pattern() {
 
 run_case() {
   local case_id="$1"
-  local case_json fixture prompt verdict workdir fixture_repo prompt_file events output pattern
+  local case_json fixture prompt verdict workdir fixture_repo prompt_file events output command_trace pattern
 
   case_json="$(jq -c --arg id "$case_id" '.cases[] | select(.id == $id)' "$REGISTRY")"
   [[ -n "$case_json" ]] || fail "unknown case: $case_id"
@@ -172,6 +195,25 @@ run_case() {
   fi
 
   output="$(extract_final_message "$events")"
+  command_trace="$(extract_command_trace "$events")"
+  while IFS= read -r pattern; do
+    if ! assert_pattern "$pattern" "$command_trace"; then
+      printf 'FAIL %s (required command was not executed: %s)\n' "$case_id" "$pattern" >&2
+      printf 'Command trace:\n%s\n' "$command_trace" >&2
+      printf 'Artifacts: %s\n' "$workdir" >&2
+      return 1
+    fi
+  done < <(jq -r '.expect.must_execute[]?' <<<"$case_json")
+
+  while IFS= read -r pattern; do
+    if assert_pattern "$pattern" "$command_trace"; then
+      printf 'FAIL %s (forbidden command was executed: %s)\n' "$case_id" "$pattern" >&2
+      printf 'Command trace:\n%s\n' "$command_trace" >&2
+      printf 'Artifacts: %s\n' "$workdir" >&2
+      return 1
+    fi
+  done < <(jq -r '.expect.must_not_execute[]?' <<<"$case_json")
+
   if [[ "$verdict" == "clean" ]]; then
     if [[ "$output" != "No open product-impacting findings." ]]; then
       printf 'FAIL %s (expected clean)\n%s\n' "$case_id" "$output" >&2
