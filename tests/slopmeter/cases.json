@@ -88,9 +88,12 @@
       "prompt": "Use Slopmeter to review the current branch against main. Keep the repository read-only.",
       "expect": {
         "verdict": "finding",
+        "finding_count": [1, 2],
         "must_match": [
           "(?i)(concurr|race|interleav|non-atomic)",
-          "(?i)(lose|lost|overwrite|drop|discard|disappear)"
+          "(?i)(lose|lost|overwrite|drop|discard|disappear)",
+          "(?i)(add|append|producer)",
+          "(?i)(take_all|drain|get[- ]and[- ]delete|delete)"
         ]
       }
     },
@@ -121,6 +124,107 @@
         "verdict": "clean",
         "must_execute": [
           "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)cardzone-production-readonly[^\\n]*--namespace(?:=|\\s+)cardzone[^\\n]*--limit(?:=|\\s+)1[^\\n]*\\|\\s*ruby\\s+bin/docker-local-replay"
+        ],
+        "must_not_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)bousla-production-readonly",
+          "(?i)ruby\\s+bin/send-production-webhook"
+        ]
+      }
+    },
+    {
+      "id": "production-state-matrix-lost-update",
+      "fixture": "production-state-matrix",
+      "head": "lost-update",
+      "runtime": "docker",
+      "prompt": "Use Slopmeter to review the current branch against main. Verify production relevance, locally derived synthetic coverage, Ruby state, committed and rolled-back database state, and outbound effects while keeping the repository and every production or shared system non-mutating.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(concurr|two[- ]connection|race|interleav|lost update)",
+          "(?i)(expected.{0,20}2.{0,30}(actual|got).{0,10}1|fulfilled.{0,30}1.{0,20}2|overwrite|under[- ]?count|two event rows.{0,30}once|advances only once|los(e|es|ing|t).{0,10}(one|an).{0,10}increment|only.{0,10}one.{0,10}increment|(one|single).{0,15}increment|both.{0,30}(same|identical).{0,20}(value|count|literal))"
+        ],
+        "must_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)cardzone-production-readonly[^\\n]*--namespace(?:=|\\s+)cardzone[^\\n]*--limit(?:=|\\s+)1[^\\n]*\\|\\s*ruby\\s+bin/docker-state-matrix"
+        ],
+        "must_not_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)bousla-production-readonly",
+          "(?i)ruby\\s+bin/send-production-webhook"
+        ]
+      }
+    },
+    {
+      "id": "production-state-matrix-precommit-side-effect",
+      "fixture": "production-state-matrix",
+      "head": "precommit-side-effect",
+      "runtime": "docker",
+      "prompt": "Use Slopmeter to review the current branch against main. Verify production relevance, locally derived synthetic coverage, Ruby state, committed and rolled-back database state, and outbound effects while keeping the repository and every production or shared system non-mutating.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(before commit|pre[- ]commit|rollback|rolled back)",
+          "(?i)(deliver|notification|outbound|gateway)"
+        ],
+        "must_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)cardzone-production-readonly[^\\n]*--namespace(?:=|\\s+)cardzone[^\\n]*--limit(?:=|\\s+)1[^\\n]*\\|\\s*ruby\\s+bin/docker-state-matrix"
+        ],
+        "must_not_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)bousla-production-readonly",
+          "(?i)ruby\\s+bin/send-production-webhook"
+        ]
+      }
+    },
+    {
+      "id": "production-state-matrix-duplicate-retry",
+      "fixture": "production-state-matrix",
+      "head": "duplicate-retry",
+      "runtime": "docker",
+      "prompt": "Use Slopmeter to review the current branch against main. Verify production relevance, locally derived synthetic coverage, Ruby state, committed and rolled-back database state, and outbound effects while keeping the repository and every production or shared system non-mutating.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(duplicate|redeliver|retry|idempoten)",
+          "(?i)(increment|count|fulfill|twice|double)"
+        ],
+        "must_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)cardzone-production-readonly[^\\n]*--namespace(?:=|\\s+)cardzone[^\\n]*--limit(?:=|\\s+)1[^\\n]*\\|\\s*ruby\\s+bin/docker-state-matrix"
+        ],
+        "must_not_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)bousla-production-readonly",
+          "(?i)ruby\\s+bin/send-production-webhook"
+        ]
+      }
+    },
+    {
+      "id": "production-state-matrix-stale-related-rollup",
+      "fixture": "production-state-matrix",
+      "head": "stale-related-rollup",
+      "runtime": "docker",
+      "prompt": "Use Slopmeter to review the current branch against main. Verify production relevance, locally derived synthetic coverage, Ruby state, committed and rolled-back database state, and outbound effects while keeping the repository and every production or shared system non-mutating.",
+      "expect": {
+        "verdict": "finding",
+        "must_match": [
+          "(?i)(sibling|related line|multi[- ]line|all lines|aggregate)",
+          "(?i)(premature|processing|fulfilled|deliver|notification)"
+        ],
+        "must_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)cardzone-production-readonly[^\\n]*--namespace(?:=|\\s+)cardzone[^\\n]*--limit(?:=|\\s+)1[^\\n]*\\|\\s*ruby\\s+bin/docker-state-matrix"
+        ],
+        "must_not_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)bousla-production-readonly",
+          "(?i)ruby\\s+bin/send-production-webhook"
+        ]
+      }
+    },
+    {
+      "id": "production-state-matrix-compatible",
+      "fixture": "production-state-matrix",
+      "head": "compatible",
+      "runtime": "docker",
+      "prompt": "Use Slopmeter to review the current branch against main. Verify production relevance, locally derived synthetic coverage, Ruby state, committed and rolled-back database state, and outbound effects while keeping the repository and every production or shared system non-mutating.",
+      "expect": {
+        "verdict": "clean",
+        "must_execute": [
+          "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)cardzone-production-readonly[^\\n]*--namespace(?:=|\\s+)cardzone[^\\n]*--limit(?:=|\\s+)1[^\\n]*\\|\\s*ruby\\s+bin/docker-state-matrix"
         ],
         "must_not_execute": [
           "(?i)ruby\\s+bin/read-production-shape[^\\n]*--context(?:=|\\s+)bousla-production-readonly",

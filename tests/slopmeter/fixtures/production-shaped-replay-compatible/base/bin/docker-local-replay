@@ -26,7 +26,7 @@ rescue StandardError => exception
   error = "#{exception.class}: #{exception.message}"
 end
 
-puts "runtime=docker-compose app_booted=true egress=blocked sample=production-readonly-sanitized"
+puts "runtime=pinned-local-runner containerized=false app_booted=true egress=blocked sample=production-readonly-sanitized"
 puts "input_type=#{payload.class} input_keys=#{payload.keys.join(",")}"
 puts "method_owner=#{method.owner} source_location=#{method.source_location.join(":")}"
 puts "result=#{result} error=#{error}"

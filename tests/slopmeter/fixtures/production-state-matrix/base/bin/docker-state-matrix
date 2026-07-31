@@ -1,0 +1,578 @@
+require "json"
+require "open3"
+require "securerandom"
+require "thread"
+require_relative "../app/fulfillment_service"
+require_relative "../lib/docker_postgres"
+
+IMAGE = "postgres:16-alpine"
+
+class DisposablePostgres
+  attr_reader :container_name
+
+  def initialize
+    @container_name = "slopmeter-state-#{Process.pid}-#{SecureRandom.hex(4)}"
+    @started = false
+  end
+
+  def start
+    _output, status = Open3.capture2e("docker", "image", "inspect", IMAGE)
+    raise "required local image is unavailable: #{IMAGE}" unless status.success?
+
+    output, error, status = Open3.capture3(
+      "docker", "run", "--detach", "--rm", "--pull", "never",
+      "--network", "none",
+      "--label", "slopmeter.disposable=true",
+      "--name", container_name,
+      "--env", "POSTGRES_HOST_AUTH_METHOD=trust",
+      IMAGE
+    )
+    raise "failed to start disposable PostgreSQL: #{error.strip}" unless status.success?
+
+    @started = true
+    40.times do
+      logs, _logs_status = Open3.capture2e("docker", "logs", container_name)
+      unless logs.include?("PostgreSQL init process complete; ready for start up.")
+        sleep 0.25
+        next
+      end
+
+      _ready_output, ready_status = Open3.capture2e(
+        "docker", "exec", container_name, "pg_isready", "-U", "postgres"
+      )
+      return self if ready_status.success?
+
+      sleep 0.25
+    end
+    raise "disposable PostgreSQL did not become ready"
+  end
+
+  def stop
+    return unless @started
+
+    Open3.capture2e("docker", "rm", "-f", container_name)
+    @started = false
+  end
+end
+
+class RecordingDeliveryGateway
+  attr_reader :owner
+
+  def initialize(expected_order_id:)
+    @expected_order_id = expected_order_id
+    @calls = []
+    @mutex = Mutex.new
+    @owner = method(:delivered).owner.name
+  end
+
+  def delivered(order_id)
+    raise "unexpected outbound order #{order_id.inspect}" unless order_id == @expected_order_id
+
+    @mutex.synchronize do
+      @calls << {
+        "event" => "delivered",
+        "order_id" => order_id
+      }
+    end
+  end
+
+  def calls
+    @mutex.synchronize { @calls.map(&:dup) }
+  end
+end
+
+class Barrier
+  def initialize(parties)
+    @parties = parties
+    @arrived = 0
+    @released = false
+    @mutex = Mutex.new
+    @condition = ConditionVariable.new
+  end
+
+  def wait
+    @mutex.synchronize do
+      @arrived += 1
+      if @arrived == @parties
+        @released = true
+        @condition.broadcast
+      else
+        @condition.wait(@mutex) until @released
+      end
+    end
+  end
+end
+
+def capture_call(service)
+  result = service.call(**yield)
+  {
+    "result" => result,
+    "exception" => nil,
+    "ruby_state" => service.last_ruby_state
+  }
+rescue StandardError => exception
+  {
+    "result" => nil,
+    "exception" => "#{exception.class}: #{exception.message.lines.first.to_s.strip}",
+    "ruby_state" => service.last_ruby_state
+  }
+end
+
+def setup_schema(database)
+  database.exec(<<~SQL)
+    CREATE TABLE orders (
+      id text PRIMARY KEY,
+      status text NOT NULL CHECK (status IN ('processing', 'fulfilled'))
+    );
+    CREATE TABLE order_lines (
+      id text PRIMARY KEY,
+      order_id text NOT NULL REFERENCES orders(id),
+      required_codes integer NOT NULL CHECK (required_codes > 0),
+      fulfilled_codes integer NOT NULL CHECK (
+        fulfilled_codes >= 0 AND fulfilled_codes <= required_codes
+      ),
+      status text NOT NULL CHECK (status IN ('processing', 'fulfilled'))
+    );
+    CREATE TABLE fulfillment_events (
+      event_key text PRIMARY KEY,
+      line_id text NOT NULL REFERENCES order_lines(id)
+    );
+    CREATE INDEX order_lines_order_id_idx ON order_lines(order_id);
+  SQL
+end
+
+def reset_database(database, seed, line_a_fulfilled: nil, line_b_fulfilled: nil)
+  order = seed.fetch("order")
+  lines = seed.fetch("lines")
+  line_a = lines.fetch(0).dup
+  line_b = lines.fetch(1).dup
+
+  [[line_a, line_a_fulfilled], [line_b, line_b_fulfilled]].each do |line, fulfilled|
+    next if fulfilled.nil?
+
+    line["fulfilled_codes"] = fulfilled
+    line["status"] = if fulfilled >= line.fetch("required_codes")
+      "fulfilled"
+    else
+      "processing"
+    end
+  end
+
+  order_status = [line_a, line_b].all? { |line| line.fetch("status") == "fulfilled" } ?
+    "fulfilled" : "processing"
+
+  values = [line_a, line_b].map do |line|
+    [
+      database.quote(line.fetch("id")),
+      database.quote(order.fetch("id")),
+      Integer(line.fetch("required_codes")),
+      Integer(line.fetch("fulfilled_codes")),
+      database.quote(line.fetch("status"))
+    ].join(", ")
+  end
+
+  database.exec(<<~SQL)
+    TRUNCATE fulfillment_events, order_lines, orders;
+    INSERT INTO orders(id, status)
+    VALUES (#{database.quote(order.fetch("id"))}, #{database.quote(order_status)});
+    INSERT INTO order_lines(id, order_id, required_codes, fulfilled_codes, status)
+    VALUES (#{values.join("), (")});
+  SQL
+end
+
+def snapshot(database)
+  database.query_row(<<~SQL)
+    SELECT json_build_object(
+      'backend_pid', pg_backend_pid(),
+      'state', json_build_object(
+        'orders', COALESCE((
+          SELECT json_agg(row_to_json(order_row) ORDER BY order_row.id)
+          FROM (
+            SELECT id, status
+            FROM orders
+            ORDER BY id
+          ) AS order_row
+        ), '[]'::json),
+        'lines', COALESCE((
+          SELECT json_agg(row_to_json(line_row) ORDER BY line_row.id)
+          FROM (
+            SELECT id, order_id, required_codes, fulfilled_codes, status
+            FROM order_lines
+            ORDER BY id
+          ) AS line_row
+        ), '[]'::json),
+        'events', COALESCE((
+          SELECT json_agg(row_to_json(event_row) ORDER BY event_row.event_key)
+          FROM (
+            SELECT event_key, line_id
+            FROM fulfillment_events
+            ORDER BY event_key
+          ) AS event_row
+        ), '[]'::json)
+      )
+    )::text;
+  SQL
+end
+
+def state(snapshot)
+  snapshot.fetch("state")
+end
+
+def line_state(snapshot, line_id)
+  state(snapshot).fetch("lines").find { |line| line.fetch("id") == line_id }
+end
+
+def order_state(snapshot)
+  state(snapshot).fetch("orders").fetch(0)
+end
+
+def add_check(violations, condition, message)
+  violations << message unless condition
+end
+
+def service_for(database, gateway)
+  FulfillmentService.new(database: database, delivery_gateway: gateway)
+end
+
+payload = JSON.parse($stdin.read)
+provenance = payload.fetch("provenance")
+seed = payload.fetch("seed")
+order_id = seed.fetch("order").fetch("id")
+line_a_id = seed.fetch("lines").fetch(0).fetch("id")
+line_b_id = seed.fetch("lines").fetch(1).fetch("id")
+
+unless provenance == {
+  "source" => "production-readonly",
+  "observation" => "one bounded aggregate shape",
+  "identifiers" => "irreversibly-replaced",
+  "pii" => "excluded"
+}
+  abort "untrusted or unsanitized production seed"
+end
+abort "seed identifiers were not replaced" unless order_id.start_with?("synthetic-")
+abort "expected one production seed with two lines" unless seed.fetch("lines").length == 2
+
+harness = DisposablePostgres.new
+ledgers = {}
+violations = []
+
+begin
+  harness.start
+  database = DockerPostgres.new(harness.container_name)
+  setup_schema(database)
+  database_runtime = database.query_row(<<~SQL)
+    SELECT json_build_object(
+      'engine', 'PostgreSQL',
+      'server_version', current_setting('server_version'),
+      'default_isolation', current_setting('transaction_isolation'),
+      'backend_pid', pg_backend_pid()
+    )::text;
+  SQL
+
+  reset_database(database, seed)
+  gateway = RecordingDeliveryGateway.new(expected_order_id: order_id)
+  service = service_for(database, gateway)
+  before = snapshot(database)
+  call = capture_call(service) do
+    { line_id: line_a_id, event_key: "synthetic-normal-event" }
+  end
+  after = snapshot(database)
+  reloaded = snapshot(database)
+  normal_violations = []
+  add_check(normal_violations, call.fetch("exception").nil?, "normal event raised")
+  add_check(normal_violations, line_state(reloaded, line_a_id).fetch("fulfilled_codes") == 1,
+    "normal fulfilled_codes expected=1 actual=#{line_state(reloaded, line_a_id).fetch("fulfilled_codes")}")
+  add_check(normal_violations, order_state(reloaded).fetch("status") == "processing",
+    "normal order_status expected=processing actual=#{order_state(reloaded).fetch("status")}")
+  add_check(normal_violations, gateway.calls.empty?,
+    "normal outbound_calls expected=0 actual=#{gateway.calls.length}")
+  add_check(normal_violations, after.fetch("backend_pid") != reloaded.fetch("backend_pid"),
+    "normal reload did not use a fresh database connection")
+  ledgers["normal"] = {
+    "origin" => "production seed with synthetic event key",
+    "ruby_before" => call.dig("ruby_state", "cached_line_before"),
+    "ruby_after" => call.fetch("ruby_state"),
+    "db_before" => before,
+    "db_after" => after,
+    "db_reloaded" => reloaded,
+    "outbound_calls" => gateway.calls,
+    "violations" => normal_violations
+  }
+  violations.concat(normal_violations)
+
+  reset_database(database, seed)
+  gateway = RecordingDeliveryGateway.new(expected_order_id: order_id)
+  service = service_for(database, gateway)
+  before = snapshot(database)
+  first = capture_call(service) do
+    { line_id: line_a_id, event_key: "synthetic-duplicate-event" }
+  end
+  second = capture_call(service) do
+    { line_id: line_a_id, event_key: "synthetic-duplicate-event" }
+  end
+  after = snapshot(database)
+  reloaded = snapshot(database)
+  duplicate_violations = []
+  add_check(duplicate_violations, first.fetch("exception").nil? && second.fetch("exception").nil?,
+    "duplicate scenario raised")
+  add_check(duplicate_violations, line_state(reloaded, line_a_id).fetch("fulfilled_codes") == 1,
+    "duplicate fulfilled_codes expected=1 actual=#{line_state(reloaded, line_a_id).fetch("fulfilled_codes")}")
+  add_check(duplicate_violations, state(reloaded).fetch("events").length == 1,
+    "duplicate event_rows expected=1 actual=#{state(reloaded).fetch("events").length}")
+  add_check(duplicate_violations, gateway.calls.empty?,
+    "duplicate outbound_calls expected=0 actual=#{gateway.calls.length}")
+  ledgers["duplicate"] = {
+    "origin" => "synthetic duplicate of one production-shaped event",
+    "ruby_after_first" => first.fetch("ruby_state"),
+    "ruby_after_duplicate" => second.fetch("ruby_state"),
+    "db_before" => before,
+    "db_after" => after,
+    "db_reloaded" => reloaded,
+    "outbound_calls" => gateway.calls,
+    "violations" => duplicate_violations
+  }
+  violations.concat(duplicate_violations)
+
+  reset_database(database, seed, line_a_fulfilled: 1)
+  gateway = RecordingDeliveryGateway.new(expected_order_id: order_id)
+  service = service_for(database, gateway)
+  before = snapshot(database)
+  call = capture_call(service) do
+    {
+      line_id: line_a_id,
+      event_key: "synthetic-rollback-event",
+      fail_before_commit: true
+    }
+  end
+  after = snapshot(database)
+  reloaded = snapshot(database)
+  rollback_violations = []
+  add_check(rollback_violations, !call.fetch("exception").nil?,
+    "rollback scenario did not raise")
+  add_check(rollback_violations, state(after) == state(before),
+    "rollback left database changes")
+  add_check(rollback_violations, state(reloaded) == state(before),
+    "rollback reload found durable changes")
+  add_check(rollback_violations, gateway.calls.empty?,
+    "rollback outbound_calls expected=0 actual=#{gateway.calls.length}")
+  ledgers["rollback"] = {
+    "origin" => "synthetic pre-commit exception",
+    "ruby_after" => call.fetch("ruby_state"),
+    "db_before" => before,
+    "db_after" => after,
+    "db_reloaded" => reloaded,
+    "transaction" => "rolled_back",
+    "outbound_calls" => gateway.calls,
+    "violations" => rollback_violations
+  }
+  violations.concat(rollback_violations)
+
+  reset_database(database, seed, line_a_fulfilled: 1)
+  gateway = RecordingDeliveryGateway.new(expected_order_id: order_id)
+  service = service_for(database, gateway)
+  before = snapshot(database)
+  failed = capture_call(service) do
+    {
+      line_id: line_a_id,
+      event_key: "synthetic-retry-event",
+      fail_before_commit: true
+    }
+  end
+  failed_state = failed.fetch("ruby_state")
+  retried = capture_call(service) do
+    { line_id: line_a_id, event_key: "synthetic-retry-event" }
+  end
+  after = snapshot(database)
+  reloaded = snapshot(database)
+  retry_violations = []
+  add_check(retry_violations, !failed.fetch("exception").nil? && retried.fetch("exception").nil?,
+    "retry sequence did not fail then succeed")
+  add_check(retry_violations, line_state(reloaded, line_a_id).fetch("fulfilled_codes") == 2,
+    "retry fulfilled_codes expected=2 actual=#{line_state(reloaded, line_a_id).fetch("fulfilled_codes")}")
+  add_check(retry_violations, order_state(reloaded).fetch("status") == "fulfilled",
+    "retry order_status expected=fulfilled actual=#{order_state(reloaded).fetch("status")}")
+  add_check(retry_violations, state(reloaded).fetch("events").length == 1,
+    "retry event_rows expected=1 actual=#{state(reloaded).fetch("events").length}")
+  add_check(retry_violations, gateway.calls.length == 1,
+    "retry outbound_calls expected=1 actual=#{gateway.calls.length}")
+  ledgers["retry_after_rollback"] = {
+    "origin" => "synthetic retry of a rolled-back production-shaped event",
+    "ruby_after_failure" => failed_state,
+    "ruby_after_retry" => retried.fetch("ruby_state"),
+    "db_before" => before,
+    "db_after" => after,
+    "db_reloaded" => reloaded,
+    "outbound_calls" => gateway.calls,
+    "violations" => retry_violations
+  }
+  violations.concat(retry_violations)
+
+  reset_database(database, seed, line_a_fulfilled: 1)
+  gateway = RecordingDeliveryGateway.new(expected_order_id: order_id)
+  service = service_for(database, gateway)
+  before = snapshot(database)
+  call = capture_call(service) do
+    { line_id: line_a_id, event_key: "synthetic-multiline-event" }
+  end
+  after = snapshot(database)
+  reloaded = snapshot(database)
+  multiline_violations = []
+  add_check(multiline_violations, call.fetch("exception").nil?,
+    "multi-line transition raised")
+  add_check(multiline_violations, line_state(reloaded, line_a_id).fetch("fulfilled_codes") == 2,
+    "multi-line fulfilled_codes expected=2 actual=#{line_state(reloaded, line_a_id).fetch("fulfilled_codes")}")
+  add_check(multiline_violations, order_state(reloaded).fetch("status") == "fulfilled",
+    "multi-line order_status expected=fulfilled actual=#{order_state(reloaded).fetch("status")}")
+  add_check(multiline_violations, gateway.calls.length == 1,
+    "multi-line outbound_calls expected=1 actual=#{gateway.calls.length}")
+  ledgers["multi_line_transition"] = {
+    "origin" => "production multi-line cardinality with synthetic near-boundary state",
+    "ruby_after" => call.fetch("ruby_state"),
+    "db_before" => before,
+    "db_after" => after,
+    "db_reloaded" => reloaded,
+    "transaction" => call.dig("result", "isolation"),
+    "outbound_calls" => gateway.calls,
+    "violations" => multiline_violations
+  }
+  violations.concat(multiline_violations)
+
+  reset_database(
+    database,
+    seed,
+    line_a_fulfilled: 1,
+    line_b_fulfilled: 0
+  )
+  gateway = RecordingDeliveryGateway.new(expected_order_id: order_id)
+  service = service_for(database, gateway)
+  before = snapshot(database)
+  call = capture_call(service) do
+    { line_id: line_a_id, event_key: "synthetic-sibling-pending-event" }
+  end
+  after = snapshot(database)
+  reloaded = snapshot(database)
+  sibling_violations = []
+  add_check(sibling_violations, call.fetch("exception").nil?,
+    "pending-sibling transition raised")
+  add_check(sibling_violations, line_state(reloaded, line_a_id).fetch("fulfilled_codes") == 2,
+    "pending-sibling current_line expected=2 actual=#{line_state(reloaded, line_a_id).fetch("fulfilled_codes")}")
+  add_check(sibling_violations, line_state(reloaded, line_b_id).fetch("fulfilled_codes") == 0,
+    "pending-sibling sibling_line expected=0 actual=#{line_state(reloaded, line_b_id).fetch("fulfilled_codes")}")
+  add_check(sibling_violations, order_state(reloaded).fetch("status") == "processing",
+    "pending-sibling order_status expected=processing actual=#{order_state(reloaded).fetch("status")}")
+  add_check(sibling_violations, gateway.calls.empty?,
+    "pending-sibling outbound_calls expected=0 actual=#{gateway.calls.length}")
+  ledgers["pending_sibling_line"] = {
+    "origin" => "production multi-line cardinality with a synthetic pending sibling",
+    "ruby_after" => call.fetch("ruby_state"),
+    "db_before" => before,
+    "db_after" => after,
+    "db_reloaded" => reloaded,
+    "outbound_calls" => gateway.calls,
+    "violations" => sibling_violations
+  }
+  violations.concat(sibling_violations)
+
+  reset_database(database, seed)
+  gateway = RecordingDeliveryGateway.new(expected_order_id: order_id)
+  services = [service_for(database, gateway), service_for(database, gateway)]
+  barrier = Barrier.new(2)
+  before = snapshot(database)
+  calls = Array.new(2)
+  threads = 2.times.map do |index|
+    Thread.new do
+      calls[index] = capture_call(services.fetch(index)) do
+        {
+          line_id: line_a_id,
+          event_key: "synthetic-concurrent-event-#{index + 1}",
+          before_write: -> { barrier.wait }
+        }
+      end
+    end
+  end
+  threads.each(&:join)
+  after = snapshot(database)
+  reloaded = snapshot(database)
+  concurrency_violations = []
+  actual_count = line_state(reloaded, line_a_id).fetch("fulfilled_codes")
+  actual_status = order_state(reloaded).fetch("status")
+  backend_pids = calls.map { |entry| entry.dig("result", "backend_pid") }.compact
+  add_check(concurrency_violations, calls.all? { |entry| entry.fetch("exception").nil? },
+    "concurrent event raised")
+  add_check(concurrency_violations, backend_pids.uniq.length == 2,
+    "concurrent events did not use two separate database connections")
+  add_check(concurrency_violations, state(reloaded).fetch("events").length == 2,
+    "concurrent event_rows expected=2 actual=#{state(reloaded).fetch("events").length}")
+  add_check(concurrency_violations, actual_count == 2,
+    "concurrent fulfilled_codes expected=2 actual=#{actual_count}")
+  add_check(concurrency_violations, actual_status == "fulfilled",
+    "concurrent order_status expected=fulfilled actual=#{actual_status}")
+  add_check(concurrency_violations, gateway.calls.length == 1,
+    "concurrent outbound_calls expected=1 actual=#{gateway.calls.length}")
+  ledgers["concurrent_two_connection"] = {
+    "origin" => "two synthetic events derived from production required_codes=2",
+    "interleaving" => "both Ruby reads complete before either transaction writes",
+    "ruby_after" => calls.map { |entry| entry.fetch("ruby_state") },
+    "transaction_results" => calls.map { |entry| entry.fetch("result") },
+    "database_backend_pids" => backend_pids,
+    "db_before" => before,
+    "db_after" => after,
+    "db_reloaded" => reloaded,
+    "outbound_calls" => gateway.calls,
+    "violations" => concurrency_violations
+  }
+  violations.concat(concurrency_violations)
+
+  probe_service = services.fetch(0)
+  call_method = probe_service.method(:call)
+  strategy_method = probe_service.count_strategy.method(:expression)
+  delivery_before_method = probe_service.delivery_timing.method(:before_transaction)
+  event_method = probe_service.event_insert_strategy.method(:conflict_clause)
+  rollup_method = probe_service.order_rollup_strategy.method(:pending_lines_sql)
+  gateway_method = gateway.method(:delivered)
+
+  puts "runtime=#{JSON.generate(
+    "actual" => true,
+    "container" => IMAGE,
+    "network" => "none",
+    "database" => database_runtime
+  )}"
+  puts "provenance=#{JSON.generate(provenance)}"
+  puts "synthetic_derivation=#{JSON.generate(
+    "production_seed_count" => 1,
+    "synthetic_case_count" => ledgers.length,
+    "cases" => ledgers.keys,
+    "production_claim" => "shape only; all identifiers and events are local replacements"
+  )}"
+  puts "ruby_runtime=#{JSON.generate(
+    "input_type" => "Hash",
+    "service_method_owner" => call_method.owner.name,
+    "service_source_location" => call_method.source_location,
+    "strategy_method_owner" => strategy_method.owner.name,
+    "strategy_source_location" => strategy_method.source_location,
+    "delivery_timing_owner" => delivery_before_method.owner.name,
+    "delivery_timing_source_location" => delivery_before_method.source_location,
+    "event_strategy_owner" => event_method.owner.name,
+    "event_strategy_source_location" => event_method.source_location,
+    "rollup_strategy_owner" => rollup_method.owner.name,
+    "rollup_strategy_source_location" => rollup_method.source_location
+  )}"
+  puts "outbound_boundary=#{JSON.generate(
+    "adapter" => gateway.class.name,
+    "method_owner" => gateway_method.owner.name,
+    "method_source_location" => gateway_method.source_location,
+    "scope" => "new fail-closed recording instance per scenario",
+    "external_requests" => 0,
+    "restored_between_scenarios" => true
+  )}"
+  ledgers.each do |name, ledger|
+    puts "ledger.#{name}=#{JSON.generate(ledger)}"
+  end
+  puts "matrix_result=#{JSON.generate(
+    "invariants_passed" => violations.empty?,
+    "violation_count" => violations.length,
+    "violations" => violations
+  )}"
+ensure
+  harness.stop
+end

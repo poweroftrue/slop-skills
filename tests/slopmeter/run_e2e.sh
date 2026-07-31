@@ -63,13 +63,37 @@ validate_registry() {
     all(.cases[];
       (.id | test("^[a-z0-9]+(-[a-z0-9]+)*$")) and
       (.fixture | type == "string" and length > 0) and
+      (if has("head")
+       then (.head | type == "string" and test("^[a-z0-9]+(-[a-z0-9]+)*$"))
+       else true
+       end) and
+      (if has("runtime")
+       then (.runtime == "docker")
+       else true
+       end) and
       (.prompt | type == "string" and length > 0) and
       (.expect | type == "object") and
-      ((.expect | keys - ["must_execute", "must_match", "must_not_execute", "verdict"]) | length == 0) and
+      ((.expect | keys - ["finding_count", "must_execute", "must_match", "must_not_execute", "verdict"]) | length == 0) and
       (.expect.verdict == "clean" or .expect.verdict == "finding") and
       (if .expect.verdict == "finding"
-       then (.expect.must_match | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))
-       else ((.expect | has("must_match")) | not)
+       then (
+         (.expect.must_match | type == "array" and length > 0 and all(.[]; type == "string" and length > 0)) and
+         (if (.expect | has("finding_count"))
+          then (
+            (.expect.finding_count | type == "number" and floor == . and . > 0) or
+            (
+              (.expect.finding_count | type == "array" and length > 0) and
+              (.expect.finding_count | length == (unique | length)) and
+              all(.expect.finding_count[]; type == "number" and floor == . and . > 0)
+            )
+          )
+          else true
+          end)
+       )
+       else (
+         ((.expect | has("must_match")) | not) and
+         ((.expect | has("finding_count")) | not)
+       )
        end) and
       (if (.expect | has("must_execute"))
        then (.expect.must_execute | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))
@@ -82,13 +106,14 @@ validate_registry() {
     )
   ' "$REGISTRY" >/dev/null || fail "invalid case registry"
 
-  local case_id fixture
+  local case_id fixture head
   for case_id in $(jq -r '.cases[].id' "$REGISTRY"); do
     fixture="$(jq -r --arg id "$case_id" '.cases[] | select(.id == $id) | .fixture' "$REGISTRY")"
+    head="$(jq -r --arg id "$case_id" '.cases[] | select(.id == $id) | .head // "head"' "$REGISTRY")"
     [[ -d "$FIXTURES/$fixture/base" ]] || fail "$case_id is missing its base fixture"
-    [[ -d "$FIXTURES/$fixture/head" ]] || fail "$case_id is missing its head fixture"
+    [[ -d "$FIXTURES/$fixture/$head" ]] || fail "$case_id is missing its $head head fixture"
     find "$FIXTURES/$fixture/base" -type f -print -quit | grep -q . || fail "$case_id has an empty base fixture"
-    find "$FIXTURES/$fixture/head" -type f -print -quit | grep -q . || fail "$case_id has an empty head fixture"
+    find "$FIXTURES/$fixture/$head" -type f -print -quit | grep -q . || fail "$case_id has an empty $head head fixture"
   done
 }
 
@@ -101,7 +126,8 @@ list_cases() {
 
 materialize_fixture() {
   local fixture="$1"
-  local destination="$2"
+  local head="$2"
+  local destination="$3"
 
   mkdir -p "$destination"
   cp -R "$FIXTURES/$fixture/base/." "$destination/"
@@ -112,7 +138,7 @@ materialize_fixture() {
   git -C "$destination" add -A
   git -C "$destination" -c commit.gpgsign=false commit -q -m "Base fixture"
   git -C "$destination" switch -q -c candidate
-  cp -R "$FIXTURES/$fixture/head/." "$destination/"
+  cp -R "$FIXTURES/$fixture/$head/." "$destination/"
   git -C "$destination" add -A
   git -C "$destination" -c commit.gpgsign=false commit -q -m "Candidate change"
 }
@@ -139,16 +165,24 @@ extract_command_trace() {
 
 assert_finding_contract() {
   local output="$1"
-  local heading_count
+  local expected_counts="$2"
+  local heading_count status_count problem_count solution_count impact_count product_solution_count
 
   [[ "$output" =~ ^1\.\ \*\*P[012]\ \— ]] || return 1
-  [[ "$output" == *"Status: ❌ Open"* ]] || return 1
-  [[ "$output" == *"Technical problem:"* ]] || return 1
-  [[ "$output" == *"Technical solution:"* ]] || return 1
-  [[ "$output" == *"Product impact:"* ]] || return 1
-  [[ "$output" == *"Product solution:"* ]] || return 1
   heading_count="$(printf '%s\n' "$output" | grep -Ec '^[0-9]+\. \*\*P[012]')"
-  [[ "$heading_count" -eq 1 ]]
+  [[ ",$expected_counts," == *",$heading_count,"* ]] || return 1
+  status_count="$(printf '%s\n' "$output" | grep -Fc 'Status: ❌ Open')"
+  problem_count="$(printf '%s\n' "$output" | grep -Fc 'Technical problem:')"
+  solution_count="$(printf '%s\n' "$output" | grep -Fc 'Technical solution:')"
+  impact_count="$(printf '%s\n' "$output" | grep -Fc 'Product impact:')"
+  product_solution_count="$(printf '%s\n' "$output" | grep -Fc 'Product solution:')"
+  [[ "$status_count" -eq "$heading_count" ]] &&
+    [[ "$problem_count" -eq "$heading_count" ]] &&
+    [[ "$solution_count" -eq "$heading_count" ]] &&
+    [[ "$impact_count" -eq "$heading_count" ]] &&
+    [[ "$product_solution_count" -eq "$heading_count" ]] &&
+    printf '%s\n' "$output" |
+      ruby -e 'expected = Integer(ARGV.fetch(0)); numbers = STDIN.read.scan(/^(\d+)\. \*\*P[012] —/).flatten.map(&:to_i); exit(numbers == (1..expected).to_a ? 0 : 1)' "$heading_count"
 }
 
 assert_pattern() {
@@ -159,19 +193,27 @@ assert_pattern() {
 
 run_case() {
   local case_id="$1"
-  local case_json fixture prompt verdict workdir fixture_repo prompt_file events output command_trace pattern
+  local case_json fixture head runtime prompt verdict finding_counts workdir fixture_repo prompt_file events output command_trace pattern
+  local docker_host docker_socket
+  local -a codex_args
 
   case_json="$(jq -c --arg id "$case_id" '.cases[] | select(.id == $id)' "$REGISTRY")"
   [[ -n "$case_json" ]] || fail "unknown case: $case_id"
   fixture="$(jq -r '.fixture' <<<"$case_json")"
+  head="$(jq -r '.head // "head"' <<<"$case_json")"
+  runtime="$(jq -r '.runtime // "read-only"' <<<"$case_json")"
   prompt="$(jq -r '.prompt' <<<"$case_json")"
   verdict="$(jq -r '.expect.verdict' <<<"$case_json")"
+  finding_counts="$(jq -r '
+    (.expect.finding_count // 1) |
+    if type == "array" then map(tostring) | join(",") else tostring end
+  ' <<<"$case_json")"
   workdir="$(mktemp -d "${TMPDIR:-/tmp}/slopmeter-e2e.XXXXXX")"
   fixture_repo="$workdir/repo"
   prompt_file="$workdir/prompt.txt"
   events="$workdir/events.jsonl"
 
-  materialize_fixture "$fixture" "$fixture_repo"
+  materialize_fixture "$fixture" "$head" "$fixture_repo"
   {
     printf '%s\n' 'Follow the exact Slopmeter skill instructions below as the active review procedure.'
     printf '%s\n' '<slopmeter-skill>'
@@ -181,15 +223,36 @@ run_case() {
   } >"$prompt_file"
 
   printf 'RUN  %s\n' "$case_id"
-  if ! "$CODEX_BIN" exec \
-    --ephemeral \
-    --ignore-user-config \
-    --ignore-rules \
-    --sandbox read-only \
-    -c 'model_reasoning_effort="high"' \
-    --cd "$fixture_repo" \
-    --json \
-    - <"$prompt_file" >"$events"; then
+  codex_args=(
+    exec
+    --ephemeral
+    --ignore-user-config
+    --ignore-rules
+    -c 'model_reasoning_effort="high"'
+  )
+  if [[ "$runtime" == "docker" ]]; then
+    command -v docker >/dev/null || fail "$case_id requires Docker"
+    docker_host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" ||
+      fail "$case_id could not resolve the active Docker context"
+    [[ "$docker_host" == unix://* ]] ||
+      fail "$case_id requires a local Unix-socket Docker context"
+    docker_socket="${docker_host#unix://}"
+    [[ -S "$docker_socket" && "$docker_socket" != *'"'* ]] ||
+      fail "$case_id resolved an invalid Docker socket"
+    docker image inspect postgres:16-alpine >/dev/null 2>&1 ||
+      fail "$case_id requires the preloaded postgres:16-alpine image"
+    codex_args+=(
+      -c 'default_permissions="slopmeter-e2e-docker"'
+      -c 'permissions.slopmeter-e2e-docker.extends=":read-only"'
+      -c 'permissions.slopmeter-e2e-docker.network.enabled=true'
+      -c "permissions.slopmeter-e2e-docker.network.unix_sockets={\"$docker_socket\"=\"allow\"}"
+    )
+  else
+    codex_args+=(--sandbox read-only)
+  fi
+  codex_args+=(--cd "$fixture_repo" --json -)
+
+  if ! "$CODEX_BIN" "${codex_args[@]}" <"$prompt_file" >"$events"; then
     printf 'FAIL %s (Codex execution failed; artifacts: %s)\n' "$case_id" "$workdir" >&2
     return 1
   fi
@@ -221,7 +284,7 @@ run_case() {
       return 1
     fi
   else
-    if ! assert_finding_contract "$output"; then
+    if ! assert_finding_contract "$output" "$finding_counts"; then
       printf 'FAIL %s (finding contract mismatch)\n%s\n' "$case_id" "$output" >&2
       printf 'Artifacts: %s\n' "$workdir" >&2
       return 1

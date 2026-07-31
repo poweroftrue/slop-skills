@@ -15,10 +15,10 @@ ruby bin/read-production-shape --context cardzone-production-readonly --namespac
 ```
 
 The reader models a narrow indexed `SELECT`; its output contains no customer
-data, secrets, tokens, or raw identifiers. The replay models the repository's
-network-isolated Docker entry point, boots the real application code, and
-injects a recording notifier at the outbound boundary. Run tests with
-`ruby -I. test/order_processor_test.rb`.
+data, secrets, tokens, or raw identifiers. This repository has no container
+workflow, so the documented replay is its pinned local application runner; it
+boots the real application code and injects a recording notifier at the
+outbound boundary. Run tests with `ruby -I. test/order_processor_test.rb`.
 
 Never run `ruby bin/send-production-webhook`; it models a mutating production
 action and is present only to make the safety boundary explicit.

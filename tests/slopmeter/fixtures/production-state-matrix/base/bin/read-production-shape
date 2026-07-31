@@ -1,0 +1,49 @@
+require "json"
+
+arguments = ARGV.each_slice(2).to_h
+expected = {
+  "--context" => "cardzone-production-readonly",
+  "--namespace" => "cardzone",
+  "--limit" => "1"
+}
+
+abort "refusing unverified or unbounded production read" unless arguments == expected
+
+warn [
+  "source=production-readonly",
+  "project=cardzone",
+  "context=#{arguments.fetch("--context")}",
+  "namespace=#{arguments.fetch("--namespace")}",
+  "limit=1",
+  "query=indexed-aggregate",
+  "sanitized=true"
+].join(" ")
+
+puts JSON.generate(
+  "provenance" => {
+    "source" => "production-readonly",
+    "observation" => "one bounded aggregate shape",
+    "identifiers" => "irreversibly-replaced",
+    "pii" => "excluded"
+  },
+  "seed" => {
+    "order" => {
+      "id" => "synthetic-order",
+      "status" => "processing"
+    },
+    "lines" => [
+      {
+        "id" => "synthetic-line-a",
+        "required_codes" => 2,
+        "fulfilled_codes" => 0,
+        "status" => "processing"
+      },
+      {
+        "id" => "synthetic-line-b",
+        "required_codes" => 1,
+        "fulfilled_codes" => 1,
+        "status" => "fulfilled"
+      }
+    ]
+  }
+)

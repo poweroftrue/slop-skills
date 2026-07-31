@@ -1,0 +1,4 @@
+project: cardzone
+production_context: cardzone-production-readonly
+production_namespace: cardzone
+local_database_image: postgres:16-alpine
