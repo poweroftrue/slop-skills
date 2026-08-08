@@ -1,7 +1,7 @@
 {
   "name": "slop-skills",
-  "version": "0.1.0+codex.20260731020926",
-  "description": "Two focused Codex code-review skills: Deslop changes code; Slopmeter only reviews it.",
+  "version": "0.1.0+codex.20260808140350",
+  "description": "Three focused Codex skills for code cleanup, read-only review, and pull request briefs.",
   "author": {
     "name": "poweroftrue",
     "url": "https://github.com/poweroftrue"
@@ -11,14 +11,15 @@
   "keywords": [
     "codex",
     "code-review",
+    "pull-requests",
     "simplification",
     "maintainability"
   ],
   "skills": "./skills/",
   "interface": {
     "displayName": "Slop Skills",
-    "shortDescription": "Clean code or review it without touching it.",
-    "longDescription": "Deslop applies behavior-preserving cleanup. Slopmeter performs a research-first, strictly read-only product review.",
+    "shortDescription": "Clean code, review risk, and explain pull requests.",
+    "longDescription": "Deslop applies behavior-preserving cleanup. Slopmeter performs a research-first, strictly read-only product review. Slop Brief explains pull requests in product language and keeps an authorized PR's managed brief current.",
     "developerName": "poweroftrue",
     "category": "Productivity",
     "capabilities": [
@@ -27,7 +28,8 @@
     ],
     "defaultPrompt": [
       "Use $deslop to simplify this change.",
-      "Use $slopmeter to review this PR without changing code."
+      "Use $slopmeter to review this PR without changing code.",
+      "Use $slop-brief to explain this pull request and keep its managed brief current."
     ]
   }
 }

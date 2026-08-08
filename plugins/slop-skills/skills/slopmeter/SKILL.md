@@ -129,6 +129,12 @@ N. **P# — Product-readable title**
 
 Use one short sentence per field whenever possible. Add a second only when needed to explain the trigger. Use the four labels exactly. Do not add a preamble, repeated summary, long evidence dump, or separate sources section.
 
+When a reproduced state mismatch has concrete expected and actual values, keep
+that decisive delta in **Technical problem** using the literal comparison form
+`expected <value>, got <value>`; for example, `expected 2, got 1`. Do not
+paraphrase `got` as `was`, or replace measured evidence with only a generalized
+description of the defect.
+
 Keep verification notes internal. Do not emit generic review fields such as `[P#]` headings, file-and-line titles, `Technical explanation`, `Trigger/input/environment`, `Affected path`, `Confidence`, or `Evidence`. Fold only decisive details into the four required fields.
 
 When external research materially supports a finding, put one direct source link inside the relevant technical sentence.

@@ -1,0 +1,7 @@
+interface:
+  display_name: "Slop Brief"
+  short_description: "Keep every pull request understandable and current"
+  default_prompt: "Use $slop-brief to explain this pull request in product language and synchronize its managed brief when writes are authorized."
+
+policy:
+  allow_implicit_invocation: true

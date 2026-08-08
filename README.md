@@ -1,9 +1,11 @@
 # Slop Skills
 
-Two focused Codex skills:
+Three focused Codex skills:
 
 - `$deslop` simplifies changed code and applies behavior-preserving fixes.
 - `$slopmeter` researches and reviews product-impacting defects without modifying code.
+- `$slop-brief` explains pull requests in product language and automatically
+  maintains a managed brief during authorized PR operations.
 
 ## Source of truth
 
@@ -12,13 +14,16 @@ in this repository:
 
 - `plugins/slop-skills/skills/deslop/`
 - `plugins/slop-skills/skills/slopmeter/`
+- `plugins/slop-skills/skills/slop-brief/`
 - `plugins/slop-skills/.codex-plugin/plugin.json`
 - `.agents/plugins/marketplace.json`
 
 The owner-controlled Slopmeter regression registry and its self-contained
-fixtures live under `tests/slopmeter/`. Repository agents must follow
-`AGENTS.md`: registry semantics change only on explicit user request, and every
-Slopmeter skill change must pass the full suite.
+fixtures live under `tests/slopmeter/`. Slop Brief publisher and trigger-contract
+tests live under `tests/slop-brief/`. Repository agents must follow `AGENTS.md`:
+registry semantics change only on explicit user request, every Slopmeter skill
+change must pass the full suite, and Slop Brief changes must pass their complete
+test suite plus fresh-session activation probes.
 
 Do not edit generated Codex copies under `~/.codex/plugins/cache/` or
 `~/.codex/.tmp/marketplaces/`. Do not install or copy these skills separately
@@ -34,10 +39,9 @@ A GitHub push does not directly rewrite an already installed Codex cache.
 
 ## Install
 
-Install Slop Skills as a plugin only. Do not also copy `deslop` or `slopmeter`
-into `~/.codex/skills`; Codex treats standalone and plugin-bundled skills as
-separate registrations, so installing both creates duplicate `$deslop` and
-`$slopmeter` entries.
+Install Slop Skills as a plugin only. Do not also copy `deslop`, `slopmeter`, or
+`slop-brief` into `~/.codex/skills`; Codex treats standalone and plugin-bundled
+skills as separate registrations, so installing both creates duplicate entries.
 
 ```bash
 codex plugin marketplace add poweroftrue/slop-skills --ref main
@@ -49,7 +53,15 @@ Start a new Codex thread, then run:
 ```text
 $deslop pr #39
 $slopmeter pr #39
+$slop-brief pr #39
 ```
+
+`$slop-brief` is also eligible for implicit activation across the pull-request
+lifecycle. Creating a PR, pushing an update to a branch with an open PR,
+addressing review feedback, editing PR metadata, or merging/closing/reopening a
+PR refreshes its managed section when that mutation is already authorized.
+Review, explanation, comparison, and status requests remain read-only unless
+the user explicitly authorizes a PR-description edit.
 
 ## Update an installed copy
 
@@ -67,8 +79,9 @@ version still appears, restart Codex and check again.
 
 ## Migrate an older standalone install
 
-If `$deslop` or `$slopmeter` appears twice, keep the plugin and disable the old
-standalone registrations in `~/.codex/config.toml` using absolute paths:
+If `$deslop`, `$slopmeter`, or `$slop-brief` appears twice, keep the plugin and
+disable old standalone registrations in `~/.codex/config.toml` using absolute
+paths:
 
 ```toml
 [[skills.config]]
@@ -77,6 +90,10 @@ enabled = false
 
 [[skills.config]]
 path = "/Users/you/.codex/skills/slopmeter/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/you/.codex/skills/change-brief/SKILL.md"
 enabled = false
 ```
 
@@ -94,6 +111,7 @@ To diagnose duplicates, compare the standalone and plugin registrations:
 ```bash
 find ~/.codex -type f -path '*/slopmeter/SKILL.md' -print
 find ~/.codex -type f -path '*/deslop/SKILL.md' -print
+find ~/.codex -type f \( -path '*/slop-brief/SKILL.md' -o -path '*/change-brief/SKILL.md' \) -print
 codex plugin list
 ```
 
@@ -105,7 +123,7 @@ can appear in the skill selector.
 ### 1. Edit only canonical source
 
 Change files under `plugins/slop-skills/`. Never edit the installed cache or
-recreate `~/.codex/skills/deslop` or `~/.codex/skills/slopmeter`.
+recreate standalone copies under `~/.codex/skills/`.
 
 ### 2. Validate the skills and plugin
 
@@ -120,8 +138,12 @@ PYTHON_BIN=/usr/bin/python3
   plugins/slop-skills/skills/deslop
 "$PYTHON_BIN" ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   plugins/slop-skills/skills/slopmeter
+"$PYTHON_BIN" ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
+  plugins/slop-skills/skills/slop-brief
 "$PYTHON_BIN" ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
   plugins/slop-skills
+
+"$PYTHON_BIN" -m unittest discover -s tests/slop-brief -p 'test_*.py'
 
 git diff --check
 ```
@@ -129,7 +151,7 @@ git diff --check
 If `/usr/bin/python3` is unavailable, choose another interpreter only after
 `<python> -c 'import yaml'` succeeds.
 
-### 3. Run the Slopmeter regression gate
+### 3. Run the regression gates
 
 After any Slopmeter skill change, run every owner-approved end-to-end case
 against the canonical source skill:
@@ -141,6 +163,12 @@ tests/slopmeter/run_e2e.sh
 A partial `--case` run does not satisfy this release gate. Do not alter case
 fixtures or expectations to make a skill change pass unless the user explicitly
 requests that test change.
+
+For Slop Brief changes, run the full deterministic suite shown above. For
+trigger-description changes, also install the candidate plugin and use fresh,
+read-only Codex sessions to verify implicit selection for representative create,
+review, update, and merge prompts. Confirm explicit `$slopmeter` and `$deslop`
+requests do not select Slop Brief unless it is also named.
 
 ### 4. Cachebust plugin payload changes
 
@@ -169,14 +197,14 @@ manifest version changed:
 
 ```bash
 git diff --check
-git diff -- AGENTS.md README.md plugins/slop-skills tests/slopmeter
+git diff -- AGENTS.md README.md plugins/slop-skills tests
 git status --short --branch
 ```
 
 Commit the skill and manifest changes together, then push `main`:
 
 ```bash
-git add AGENTS.md README.md plugins/slop-skills tests/slopmeter
+git add AGENTS.md README.md plugins/slop-skills tests
 git commit -m "Describe the Slop Skills change"
 git push origin main
 git status --short --branch
@@ -199,10 +227,12 @@ Verify all of the following before declaring the update complete:
 
 - `slop-skills@slop-skills` is `installed, enabled`.
 - Its installed version matches `plugins/slop-skills/.codex-plugin/plugin.json`.
-- `~/.codex/skills/deslop` and `~/.codex/skills/slopmeter` are absent or disabled
-  with `[[skills.config]]` entries.
+- `~/.codex/skills/deslop`, `~/.codex/skills/slopmeter`, and legacy
+  `~/.codex/skills/change-brief` registrations are absent or disabled with
+  `[[skills.config]]` entries.
 - The repository is clean and synchronized with `origin/main`.
-- A new Codex thread shows exactly one `$deslop` and one `$slopmeter`.
+- A new Codex thread shows exactly one `$deslop`, one `$slopmeter`, and one
+  `$slop-brief`.
 
 If the selector is stale, restart Codex before changing installation state
 again.
