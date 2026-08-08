@@ -36,6 +36,7 @@ class SkillContractTests(unittest.TestCase):
 
     def test_description_covers_pr_lifecycle_and_branch_pushes(self) -> None:
         description = self.frontmatter["description"].lower()
+        self.assertTrue(description.startswith("never use this skill"))
         for phrase in (
             "create",
             "review",
@@ -49,6 +50,7 @@ class SkillContractTests(unittest.TestCase):
             "implicit read-only",
             "$slopmeter",
             "$deslop",
+            "unless slop brief",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, description)

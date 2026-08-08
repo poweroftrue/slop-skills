@@ -1,11 +1,14 @@
 ---
 name: slop-brief
-description: "Create and maintain product-language briefs for GitHub pull requests. Use whenever a task operates on a PR or a branch with an open or intended PR: create, open, or draft it; inspect, review, explain, summarize, compare, or check status and merge readiness; push or update commits, branch, title, body, labels, reviewers, checks, or draft/ready state; address feedback; comment, approve, or request changes; merge, close, or reopen. Also use for product-language diff or commit explanations, every changed file in logical order, a dictionary before changes, explicit $slop-brief, or legacy $change-brief requests. On authorized PR mutations, synchronize the managed Slop Brief; on implicit read-only requests, produce it without writing. Do not use for explicit $slopmeter or $deslop unless $slop-brief is also invoked."
+description: "Never use this skill when the user explicitly names Slopmeter ($slopmeter) or Deslop ($deslop), unless Slop Brief ($slop-brief) is also explicitly named. Otherwise, create and maintain product-language briefs for GitHub pull requests. Use whenever a task operates on a PR or a branch with an open or intended PR: create/open/draft; inspect/review/explain/summarize/compare/check status or merge readiness; push/update commits or branch; edit title/body/labels/reviewers/checks/draft state; address feedback; comment/approve/request changes; merge/close/reopen. Also use for product-language diff or commit explanations, every changed file in logical order, a dictionary before changes, and legacy $change-brief requests. Synchronize authorized PR mutations; keep implicit read-only requests non-mutating."
 ---
 
 # Slop Brief
 
 Make an unfamiliar pull request understandable and keep its product brief current.
+
+If the user explicitly names `$slopmeter` or `$deslop` without also naming
+`$slop-brief`, yield to that requested workflow and do not apply Slop Brief.
 
 ## Choose the operating mode
 

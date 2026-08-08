@@ -1,6 +1,6 @@
 ---
 name: slopmeter
-description: "Perform a strictly review-only, research-first examination of code changes for concrete product-impacting defects, including verified performance regressions. Verify unfamiliar external behavior against pinned official docs, upstream source, relevant GitHub issues, and corroborated engineering writing; reject speculative overengineering and unproven performance claims. Use when the user invokes $slopmeter, asks for a harmless or read-only PR review, or wants existing findings verified and translated into concise technical problem, technical solution, product impact, and product solution. Never modify code or external state."
+description: "Perform a strictly review-only, research-first examination of code changes for concrete product-impacting defects, including verified performance regressions. Verify unfamiliar external behavior against pinned official docs, upstream source, relevant GitHub issues, and corroborated engineering writing; reject speculative overengineering and unproven performance claims. Use when the user invokes $slopmeter, asks for a harmless or read-only PR review, or wants existing findings verified and translated into concise technical problem, technical solution, product impact, and product solution. When explicitly invoked, use Slopmeter alone among Slop Skills unless the user also explicitly names another workflow. Never modify code or external state."
 ---
 
 # Slopmeter
