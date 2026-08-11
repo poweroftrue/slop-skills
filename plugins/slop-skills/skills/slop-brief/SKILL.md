@@ -53,9 +53,11 @@ outside the managed markers.
 
 ## Build the brief
 
-Start with these sections in this order:
+Start with this sentence and these sections in this order:
 
 ```markdown
+**What this PR changes:** Orders now stop before fulfillment when the store wallet cannot cover their cost.
+
 ## Dictionary
 
 - Term — One short product-language meaning.
@@ -68,6 +70,10 @@ Start with these sections in this order:
   - Example: one concrete scenario when useful.
   - Files: `path/one`, `path/two`.
 ```
+
+The opening sentence must state the main product behavior that the PR adds,
+removes, or changes. Use product language, not a title fragment, file list, or
+implementation-only statement.
 
 ### Dictionary rules
 
@@ -163,9 +169,10 @@ Resolve `scripts/publish_slop_brief.py` relative to this skill directory. The
 script owns only text between its hidden markers, preserves all other PR body
 content, and migrates a legacy `change-brief` marker pair when present.
 
-Publish only after the complete `## Dictionary` and
-`## Changes in logical order` brief is ready. Do not publish a conversational
-`## Answer` section. If authentication, permission, or PR discovery fails,
+Publish only after the `**What this PR changes:**` sentence and the complete
+`## Dictionary` and `## Changes in logical order` brief are ready. Do not
+publish a conversational `## Answer` section. If authentication, permission,
+or PR discovery fails,
 finish the local brief and report that synchronization did not occur.
 
 Use `--allow-closed` only when the user explicitly asks to update a closed or
@@ -176,9 +183,9 @@ merged PR. Use `--dry-run` for validation that must not modify GitHub.
 For every follow-up about the same PR:
 
 1. Lead with `## Answer` when the user asked a direct question.
-2. Reproduce the entire updated `## Dictionary` and
-   `## Changes in logical order` response immediately afterward unless the user
-   asks for a shorter answer.
+2. Reproduce the updated `**What this PR changes:**` sentence and the entire
+   `## Dictionary` and `## Changes in logical order` response immediately
+   afterward unless the user asks for a shorter answer.
 3. Integrate the answer into the relevant numbered group and replace outdated
    wording.
 4. Preserve all previously covered files and changes that remain in the live

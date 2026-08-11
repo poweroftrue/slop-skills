@@ -66,6 +66,14 @@ class SkillContractTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.body)
 
+    def test_brief_starts_with_product_change_before_dictionary(self) -> None:
+        summary = "**What this PR changes:**"
+        dictionary = "## Dictionary"
+        changes = "## Changes in logical order"
+        self.assertIn(summary, self.body)
+        self.assertLess(self.body.index(summary), self.body.index(dictionary))
+        self.assertLess(self.body.index(dictionary), self.body.index(changes))
+
     def test_plugin_advertises_all_three_skills(self) -> None:
         interface = self.manifest["interface"]
         prompts = "\n".join(interface["defaultPrompt"])

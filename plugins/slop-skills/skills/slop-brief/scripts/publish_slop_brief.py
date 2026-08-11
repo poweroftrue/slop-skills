@@ -16,6 +16,7 @@ END_MARKER = "<!-- slop-brief:end -->"
 LEGACY_START_MARKER = "<!-- change-brief:start -->"
 LEGACY_END_MARKER = "<!-- change-brief:end -->"
 PR_URL_RE = re.compile(r"https://github\.com/(?P<repo>[^/]+/[^/]+)/pull/(?P<number>\d+)")
+SUMMARY_PREFIX = "**What this PR changes:**"
 REQUIRED_HEADINGS = ("## Dictionary", "## Changes in logical order")
 
 
@@ -57,6 +58,19 @@ def read_brief(path: str) -> str:
     )
     if marker:
         raise PublishError("the brief file must not contain managed-section markers")
+
+    summary_lines = [
+        line for line in value.splitlines() if line.startswith(SUMMARY_PREFIX)
+    ]
+    if (
+        len(summary_lines) != 1
+        or not summary_lines[0][len(SUMMARY_PREFIX) :].strip()
+        or not value.startswith(SUMMARY_PREFIX)
+    ):
+        raise PublishError(
+            "the brief must start with one non-empty "
+            "'**What this PR changes:**' sentence"
+        )
 
     positions = [value.find(heading) for heading in REQUIRED_HEADINGS]
     if -1 in positions or positions != sorted(positions):

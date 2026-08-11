@@ -21,7 +21,9 @@ assert SPEC and SPEC.loader
 publisher = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(publisher)
 
-BRIEF = """## Dictionary
+BRIEF = """**What this PR changes:** Checkout now stops before fulfillment when the store wallet is short.
+
+## Dictionary
 
 - Wallet — A store's available spending balance.
 
@@ -44,7 +46,12 @@ class BriefInputTests(unittest.TestCase):
         self.assertEqual(self.read(f"\n{BRIEF}\n"), BRIEF.strip())
 
     def test_rejects_empty_or_incomplete_brief(self) -> None:
-        for value in ("", "## Dictionary\n\n- Term — Meaning."):
+        for value in (
+            "",
+            "## Dictionary\n\n- Term — Meaning.",
+            "**What this PR changes:**\n\n## Dictionary\n\n## Changes in logical order",
+            "## Dictionary\n\n**What this PR changes:** Too late.\n\n## Changes in logical order",
+        ):
             with self.subTest(value=value), self.assertRaises(publisher.PublishError):
                 self.read(value)
 
