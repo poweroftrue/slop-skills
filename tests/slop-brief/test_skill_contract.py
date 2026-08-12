@@ -74,12 +74,13 @@ class SkillContractTests(unittest.TestCase):
         self.assertLess(self.body.index(summary), self.body.index(dictionary))
         self.assertLess(self.body.index(dictionary), self.body.index(changes))
 
-    def test_plugin_advertises_all_three_skills(self) -> None:
+    def test_plugin_advertises_all_four_skills(self) -> None:
         interface = self.manifest["interface"]
         prompts = "\n".join(interface["defaultPrompt"])
         self.assertIn("$deslop", prompts)
         self.assertIn("$slopmeter", prompts)
         self.assertIn("$slop-brief", prompts)
+        self.assertIn("$slop-fix", prompts)
         self.assertIn("pull request", self.manifest["description"].lower())
 
 

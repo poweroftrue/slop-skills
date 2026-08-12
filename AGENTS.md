@@ -22,3 +22,15 @@
 - Before publishing trigger-contract changes, test implicit activation in fresh
   Codex sessions. Use dry-run or read-only prompts so activation tests cannot
   mutate a real pull request.
+
+## Slop Fix regression gate
+
+- Keep `$slop-fix` explicit-only. It may edit local source and tests, but it
+  must not commit, push, rebase, update a pull request, post a review, merge, or
+  deploy without separate explicit authorization.
+- Scope repairs by the pull request's intended behavior and the smallest correct
+  fix, not only by changed-file membership.
+- Fix every verified in-scope P-level finding, and report findings whose repair
+  would change unrelated product behavior.
+- After any change under `plugins/slop-skills/skills/slop-fix/`, run all tests
+  under `tests/slop-fix/` before committing, cachebusting, or publishing.

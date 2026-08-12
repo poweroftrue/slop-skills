@@ -1,0 +1,7 @@
+interface:
+  display_name: "Slop Fix"
+  short_description: "Fix in-scope review findings without widening the PR"
+  default_prompt: "Use $slop-fix to verify and surgically fix every P-level finding that belongs to this pull request, then report anything outside its scope."
+
+policy:
+  allow_implicit_invocation: false
