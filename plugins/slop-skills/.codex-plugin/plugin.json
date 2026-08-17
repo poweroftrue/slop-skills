@@ -1,6 +1,6 @@
 {
   "name": "slop-skills",
-  "version": "0.1.0+codex.20260817131835",
+  "version": "0.1.0+codex.20260817150813",
   "description": "Five focused Codex skills for code cleanup, read-only review, scoped finding repair, autonomous PR review-and-fix loops, and pull request briefs.",
   "author": {
     "name": "poweroftrue",

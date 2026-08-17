@@ -56,6 +56,9 @@
   authority.
 - Preserve the finding-triage exit when a later external readiness check blocks,
   but fail if the reviewed target or diff changes.
+- Let two clean passes with validation failures proven identical on the current
+  base reach Claude review and final reporting. Keep `READY_TO_MERGE` unavailable
+  until every local validation and remote gate passes.
 - Preserve host-session inheritance for the model, reasoning effort, and
   service tier, plus the JSONL usage report.
 - Never let Slop Loop merge, force-push, rewrite history, create another pull

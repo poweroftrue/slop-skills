@@ -23,9 +23,11 @@ RESULT_PREFIX = "SLOP_LOOP_RESULT="
 CLAUDE_RESULT_PREFIX = "CLAUDE_REVIEW_RESULT="
 CLAUDE_MODEL = "opus"
 CLAUDE_TRIAGE_EXIT_STATUS = 3
+BASELINE_VALIDATION_STATUS = "baseline_failed"
 VALID_STATUSES = {"READY_TO_MERGE", "LOCALLY_CLEAN", "BLOCKED", "FAILED"}
 PR_NUMBER_RE = re.compile(r"[1-9]\d*")
 PR_URL_RE = re.compile(r"https://github\.com/([^/]+)/([^/]+)/pull/([1-9]\d*)/?")
+COMMIT_SHA_RE = re.compile(r"[0-9a-f]{40}", re.IGNORECASE)
 CLAUDE_REVIEW_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
@@ -435,9 +437,17 @@ and stays stable across a commit-only transition.
 
 The first exact clean pass records its source fingerprint and sets the streak to 1. A later
 exact clean pass increments the streak only when its source fingerprint matches; a finding
-resets the streak to 0, and a changed clean fingerprint starts a new streak at 1. Require all
-repository validations to pass before counting or publishing a clean pass. A failed validation
-must stop as BLOCKED with the failed command and evidence.
+resets the streak to 0, and a changed clean fingerprint starts a new streak at 1.
+
+Run all repository validations before counting or publishing a clean pass. If validation fails,
+run the exact failed command with the same environment and tool versions in a separate clean
+worktree at the current remote base SHA. Normalize each failure to a stable signature containing
+the test identity plus assertion or exception class, without seeds, timing, or volatile paths.
+Only classify the result as baseline_failed when the sorted nonempty head and base signature
+arrays match exactly and no head-only failure exists. A proven baseline failure does not block
+the clean streak, publication, or the Claude review, but it always blocks READY_TO_MERGE. If the
+base comparison is unavailable, unstable, or different, do not increment, commit, or push; stop
+as BLOCKED with the failed command and evidence.
 
 After the first clean pass, commit and push any loop-owned repair to the exact PR head before
 the second pass when publication is authorized. In --no-push mode, leave local changes
@@ -457,18 +467,22 @@ the worktree is clean, no conflict exists, all required checks pass, no required
 changes-requested state blocks merge, all local validations passed, and both clean passes
 covered the same source state.
 
-If an external Phase 3 condition remains after two clean pushed passes, return BLOCKED but keep
-the worktree clean and preserve both exact clean passes, their fingerprint, successful local
-validation, the exact final head, and the remote branch in the result. The parent uses that
-evidence to run the independent Claude review before it reports the external blocker.
+If a proven baseline validation failure or another external Phase 3 condition remains after two
+clean pushed passes, return BLOCKED but keep the worktree clean and preserve both exact clean
+passes, their fingerprint, validation evidence, exact final head, and remote branch in the
+result. The parent uses that evidence to run the independent Claude review before it reports the
+blocker.
 
 End your final response with one `SLOP_LOOP_RESULT=` line followed by one compact JSON object.
 It must be the last nonempty line. The object must have: status, pr_url, final_head_sha,
 source_fingerprint, clean_passes, local_validation, worktree_clean, remote_checks, commits_pushed,
 and remote_branch. Each clean_passes entry must have verdict, source_fingerprint, and validation.
 Use one status: READY_TO_MERGE, LOCALLY_CLEAN, BLOCKED, or FAILED. Use "passed" for successful
-validation and remote checks. Include human-readable pass history, finding outcomes, commits,
-checks, and merge proof before the result line.
+validation and remote checks. Use "baseline_failed" only for the exact comparison above and add
+baseline_validation with base_sha, commands, head_failure_signatures, and
+base_failure_signatures, plus the final pushed head_sha and source_fingerprint whose content was
+validated. Include human-readable pass history, finding outcomes, commits, checks, and merge proof
+before the result line.
 """
 
 
@@ -563,7 +577,81 @@ def validate_report_path(raw_path: str | None, repo: Path) -> Path | None:
     return path
 
 
-def clean_pass_evidence_errors(payload: dict[str, Any]) -> list[str]:
+def string_array(value: Any) -> list[str] | None:
+    if not isinstance(value, list) or not value:
+        return None
+    if any(string_value(item) is None for item in value):
+        return None
+    return [str(item) for item in value]
+
+
+def uses_baseline_validation(payload: dict[str, Any]) -> bool:
+    if payload.get("local_validation") == BASELINE_VALIDATION_STATUS:
+        return True
+    passes = payload.get("clean_passes")
+    return isinstance(passes, list) and any(
+        isinstance(item, dict)
+        and item.get("validation") == BASELINE_VALIDATION_STATUS
+        for item in passes
+    )
+
+
+def baseline_validation_evidence_errors(
+    payload: dict[str, Any],
+    *,
+    expected_base_sha: str | None = None,
+    expected_head_sha: str | None = None,
+    expected_source_fingerprint: str | None = None,
+) -> list[str]:
+    uses_baseline = uses_baseline_validation(payload)
+    if not uses_baseline and "baseline_validation" not in payload:
+        return []
+    if not uses_baseline:
+        return ["baseline validation evidence requires baseline_failed validation"]
+    errors: list[str] = []
+    if payload.get("local_validation") != BASELINE_VALIDATION_STATUS:
+        errors.append("baseline clean passes require baseline_failed local validation")
+    evidence = payload.get("baseline_validation")
+    if not isinstance(evidence, dict):
+        return errors + ["baseline validation evidence is missing"]
+    base_sha = string_value(evidence.get("base_sha"))
+    if base_sha is None or COMMIT_SHA_RE.fullmatch(base_sha) is None:
+        errors.append("baseline validation evidence lacks a full base SHA")
+    elif expected_base_sha is not None and base_sha != expected_base_sha:
+        errors.append("baseline validation evidence names a different PR base")
+    head_sha = string_value(evidence.get("head_sha"))
+    reported_head_sha = string_value(payload.get("final_head_sha"))
+    required_head_sha = expected_head_sha or reported_head_sha
+    if head_sha is None or COMMIT_SHA_RE.fullmatch(head_sha) is None:
+        errors.append("baseline validation evidence lacks a full head SHA")
+    elif required_head_sha is not None and head_sha != required_head_sha:
+        errors.append("baseline validation evidence names a different PR head")
+    source_fingerprint = string_value(evidence.get("source_fingerprint"))
+    reported_fingerprint = string_value(payload.get("source_fingerprint"))
+    required_fingerprint = expected_source_fingerprint or reported_fingerprint
+    if source_fingerprint is None:
+        errors.append("baseline validation evidence lacks the source fingerprint")
+    elif (
+        required_fingerprint is not None
+        and source_fingerprint != required_fingerprint
+    ):
+        errors.append("baseline validation evidence names a different source state")
+    if string_array(evidence.get("commands")) is None:
+        errors.append("baseline validation evidence lacks exact commands")
+    head_signatures = string_array(evidence.get("head_failure_signatures"))
+    base_signatures = string_array(evidence.get("base_failure_signatures"))
+    if head_signatures is None or base_signatures is None:
+        errors.append("baseline validation evidence lacks failure signatures")
+    elif sorted(head_signatures) != sorted(base_signatures):
+        errors.append("head and base validation failure signatures differ")
+    return errors
+
+
+def clean_pass_evidence_errors(
+    payload: dict[str, Any],
+    *,
+    allow_baseline: bool = False,
+) -> list[str]:
     errors: list[str] = []
     passes = payload.get("clean_passes")
     if not isinstance(passes, list) or len(passes) < 2:
@@ -576,8 +664,11 @@ def clean_pass_evidence_errors(payload: dict[str, Any]) -> list[str]:
             continue
         if item.get("verdict") != CLEAN_VERDICT:
             errors.append("clean-pass evidence lacks the exact Slopmeter verdict")
-        if item.get("validation") != "passed":
-            errors.append("clean-pass evidence lacks successful validation")
+        allowed_validations = {"passed"}
+        if allow_baseline:
+            allowed_validations.add(BASELINE_VALIDATION_STATUS)
+        if item.get("validation") not in allowed_validations:
+            errors.append("clean-pass evidence lacks acceptable validation")
         fingerprint = string_value(item.get("source_fingerprint"))
         if fingerprint is None:
             errors.append("clean-pass evidence lacks a source fingerprint")
@@ -660,11 +751,15 @@ def claude_gate_errors(
         errors.append("Claude review child evidence lacks the source fingerprint")
     if payload.get("remote_branch") != f"{binding.head_repository}:{binding.head_branch}":
         errors.append("Claude review child evidence names a different remote branch")
-    if payload.get("local_validation") != "passed":
-        errors.append("Claude review requires successful local validation")
+    if payload.get("local_validation") not in {
+        "passed",
+        BASELINE_VALIDATION_STATUS,
+    }:
+        errors.append("Claude review requires passed or proven baseline validation")
     if payload.get("worktree_clean") is not True:
         errors.append("Claude review requires a clean pushed worktree")
-    errors.extend(clean_pass_evidence_errors(payload))
+    errors.extend(clean_pass_evidence_errors(payload, allow_baseline=True))
+    errors.extend(baseline_validation_evidence_errors(payload))
     return errors
 
 
@@ -1317,7 +1412,10 @@ def main(argv: list[str] | None = None) -> int:
             "claude_review": {
                 "model": CLAUDE_MODEL,
                 "mode": "no-tools read-only",
-                "runs_after": "two verified clean pushed passes",
+                "runs_after": (
+                    "two verified clean pushed passes, including proven "
+                    "baseline failures"
+                ),
                 "required": not args.no_push,
             },
             "pr_binding": asdict(binding),
@@ -1392,6 +1490,16 @@ def main(argv: list[str] | None = None) -> int:
             )
             try:
                 target = resolve_claude_target(binding, repo, reviewed_head)
+                baseline_errors = baseline_validation_evidence_errors(
+                    result.reported_result,
+                    expected_base_sha=target.base_sha,
+                    expected_head_sha=target.head_sha,
+                    expected_source_fingerprint=result.reported_result.get(
+                        "source_fingerprint"
+                    ),
+                )
+                if baseline_errors:
+                    raise ValueError("; ".join(baseline_errors))
                 review_context, diff_sha256 = load_review_context(target, repo)
                 claude_target = target
                 claude_diff_sha256 = diff_sha256

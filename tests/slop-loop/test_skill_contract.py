@@ -67,11 +67,16 @@ class SlopLoopContractTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.normalized_body)
 
-    def test_failed_validation_cannot_advance_or_publish(self) -> None:
+    def test_validation_requires_success_or_exact_baseline_proof(self) -> None:
         for phrase in (
-            "require every validation to pass before changing the streak or publishing",
-            "do not increment, commit, or push",
+            "same environment and tool versions",
+            "sorted nonempty head and base signature arrays match exactly",
+            "can increment the clean streak, allow an authorized publication, and reach Phase 4",
+            "cannot satisfy merge readiness",
+            "final pushed head SHA, validated source fingerprint",
+            "Do not include `baseline_validation` with a passed validation status",
             "every recorded repository-required and focused local validation succeeded",
+            "must report `BLOCKED` after Phase 4 instead of omitting the Claude result",
         ):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.normalized_body)

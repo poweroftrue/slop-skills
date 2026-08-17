@@ -106,10 +106,19 @@ The child must follow this state machine exactly:
    - run all repository-required and focused checks plus `git diff --check`;
    - return to step 2 with a new review of the full current PR state.
 5. If Slopmeter returns the exact clean verdict:
-   - run the repository-required validation for the current state and require
-     every validation to pass before changing the streak or publishing;
-   - on a validation failure, do not increment, commit, or push; stop as
-     `BLOCKED` with the exact failed command and evidence;
+   - run every repository-required validation for the current state;
+   - if validation fails, run the exact failed command with the same environment
+     and tool versions in a separate clean worktree at the current remote base
+     SHA;
+   - normalize each failure to a stable signature containing the test identity
+     plus assertion or exception class, without seeds, timing, or volatile paths;
+   - use `baseline_failed` only when the sorted nonempty head and base signature
+     arrays match exactly and no head-only failure exists. This proven baseline
+     result can increment the clean streak, allow an authorized publication, and
+     reach Phase 4, but it cannot satisfy merge readiness;
+   - when the base comparison is unavailable, unstable, or different, do not
+     increment, commit, or push; stop as `BLOCKED` with the exact command and
+     evidence;
    - for a publishing run with loop-owned changes, create a normal
      reason-preserving commit and push it to the exact existing PR head branch,
      then confirm that the remote PR head contains the reviewed source state;
@@ -128,9 +137,10 @@ The child must follow this state machine exactly:
 
 For `--no-push`, never commit, push, or require local-to-remote equality. Keep
 the verified local changes in the isolated worktree. After two local clean
-passes on the same source-state fingerprint and two successful local validation
-runs, finish as `LOCALLY_CLEAN` and keep the changed worktree for the user. Do
-not run the remote Claude review because the repaired state was not pushed.
+passes on the same source-state fingerprint, finish as `LOCALLY_CLEAN` only when
+both local validation runs passed. A proven baseline failure finishes as
+`BLOCKED`. Keep the changed worktree for the user. Do not run the remote Claude
+review because the repaired state was not pushed.
 
 Do not set a fixed review-count limit. Stop as `BLOCKED` when the same findings
 and same source-state fingerprint repeat after two complete repair attempts, or
@@ -169,21 +179,22 @@ requires all of these facts at the same time:
   returned the exact clean verdict.
 
 Poll a pending check for a reasonable repository-supported period. If a check,
-approval, merge queue, permission, or platform state remains external to the
-authorized code repair, stop as `BLOCKED`; do not loop without new evidence and
-do not claim that the PR is ready. When this happens after two clean pushed
-passes, keep the worktree clean and include both pass fingerprints, successful
-local validation, exact final head, and remote branch in the `BLOCKED` result so
-the launcher can still run Phase 4.
+approval, merge queue, permission, baseline validation failure, or platform
+state remains external to the authorized code repair, stop as `BLOCKED`; do not
+loop without new evidence and do not claim that the PR is ready. When this
+happens after two clean pushed passes, keep the worktree clean and include both
+pass fingerprints, validation evidence, exact final head, and remote branch in
+the `BLOCKED` result so the launcher can still run Phase 4.
 
 ## Phase 4 — Run the independent Claude Opus 5 review
 
 For a publishing run, the launcher must do this after a successful Codex process
-reports two exact clean passes on one fingerprint, successful validation, a
-clean worktree, and the exact pushed PR head. This includes a `BLOCKED` child
-whose only remaining Phase 3 condition is external, such as a pending check or
-missing approval. Run Claude before the launcher's final merge-readiness check,
-so an external merge blocker cannot skip the requested independent review.
+reports two exact clean passes on one fingerprint, validation that passed or is
+proven identical on the current base, a clean worktree, and the exact pushed PR
+head. This includes a `BLOCKED` child whose remaining Phase 3 conditions include
+proven baseline failures, pending checks, or missing approval. Run Claude before
+the launcher's final merge-readiness check, so these blockers cannot skip the
+requested independent review.
 
 1. Resolve the current base and head commit SHAs, compute their merge base, and
    generate the PR diff locally from those immutable commits. Record the diff's
@@ -235,7 +246,12 @@ The JSON object must contain `status`, `pr_url`, `final_head_sha`,
 `remote_checks`, `commits_pushed`, and `remote_branch`. Each clean-pass entry
 must contain the exact Slopmeter verdict, source fingerprint, and validation
 result. Use `READY_TO_MERGE`, `LOCALLY_CLEAN`, `BLOCKED`, or `FAILED` as the one
-status value.
+status value. Use `baseline_failed` only with `baseline_validation` containing
+the current base SHA, final pushed head SHA, validated source fingerprint, exact
+commands, and matching nonempty `head_failure_signatures` and
+`base_failure_signatures` arrays. A publishing run with this proof must report
+`BLOCKED` after Phase 4 instead of omitting the Claude result. Do not include
+`baseline_validation` with a passed validation status.
 
 Then report:
 

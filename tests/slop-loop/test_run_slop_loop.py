@@ -132,6 +132,25 @@ class SlopLoopLauncherTests(unittest.TestCase):
             "remote_branch": f"{binding.head_repository}:{binding.head_branch}",
         }
 
+    def baseline_blocked_payload(self, binding: object) -> dict:
+        payload = self.successful_payload(binding, "BLOCKED")
+        payload["local_validation"] = LOOP.BASELINE_VALIDATION_STATUS
+        for clean_pass in payload["clean_passes"]:
+            clean_pass["validation"] = LOOP.BASELINE_VALIDATION_STATUS
+        payload["baseline_validation"] = {
+            "base_sha": "b" * 40,
+            "head_sha": binding.head_sha,
+            "source_fingerprint": "sha256:clean",
+            "commands": ["bin/ci"],
+            "head_failure_signatures": [
+                "ExampleTest#test_path|Assertion: expected true"
+            ],
+            "base_failure_signatures": [
+                "ExampleTest#test_path|Assertion: expected true"
+            ],
+        }
+        return payload
+
     def test_session_settings_override_config_and_priority_maps_to_fast(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -476,6 +495,55 @@ class SlopLoopLauncherTests(unittest.TestCase):
         )
         self.assertEqual(LOOP.launcher_exit_status(result, allow_push=True), 1)
 
+    def test_claude_gate_accepts_exact_baseline_validation_evidence(self) -> None:
+        payload = self.baseline_blocked_payload(self.binding())
+        self.assertEqual(LOOP.claude_gate_errors(payload, self.binding()), [])
+        self.assertEqual(
+            LOOP.baseline_validation_evidence_errors(
+                payload,
+                expected_base_sha="b" * 40,
+            ),
+            [],
+        )
+
+    def test_claude_gate_rejects_changed_or_stale_baseline_evidence(self) -> None:
+        payload = self.baseline_blocked_payload(self.binding())
+        payload["baseline_validation"]["base_failure_signatures"] = [
+            "DifferentTest#test_path|RuntimeError"
+        ]
+        self.assertIn(
+            "head and base validation failure signatures differ",
+            LOOP.claude_gate_errors(payload, self.binding()),
+        )
+        payload = self.baseline_blocked_payload(self.binding())
+        self.assertIn(
+            "baseline validation evidence names a different PR base",
+            LOOP.baseline_validation_evidence_errors(
+                payload,
+                expected_base_sha="c" * 40,
+            ),
+        )
+        payload = self.baseline_blocked_payload(self.binding())
+        payload["baseline_validation"]["head_sha"] = "c" * 40
+        self.assertIn(
+            "baseline validation evidence names a different PR head",
+            LOOP.claude_gate_errors(payload, self.binding()),
+        )
+        payload = self.baseline_blocked_payload(self.binding())
+        payload["baseline_validation"]["source_fingerprint"] = "sha256:stale"
+        self.assertIn(
+            "baseline validation evidence names a different source state",
+            LOOP.claude_gate_errors(payload, self.binding()),
+        )
+
+    def test_passed_validation_rejects_stray_baseline_evidence(self) -> None:
+        payload = self.successful_payload(self.binding(), "READY_TO_MERGE")
+        payload["baseline_validation"] = {"malformed": True}
+        self.assertIn(
+            "baseline validation evidence requires baseline_failed validation",
+            LOOP.claude_gate_errors(payload, self.binding()),
+        )
+
     def test_claude_review_rejects_a_non_opus_5_result(self) -> None:
         target = LOOP.ClaudeReviewTarget(
             self.binding().url,
@@ -779,6 +847,62 @@ class SlopLoopLauncherTests(unittest.TestCase):
         claude.assert_called_once()
         ready.assert_not_called()
 
+    def test_proven_baseline_failures_still_run_claude_and_return_results(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            _primary, linked, sha = self.make_linked_worktree(root)
+            binding = LOOP.PrBinding(
+                132,
+                self.binding().url,
+                "example/project",
+                "example/project",
+                "pr-test",
+                sha,
+            )
+            target = LOOP.ClaudeReviewTarget(
+                binding.url, "b" * 40, sha, "c" * 40
+            )
+            payload = self.baseline_blocked_payload(binding)
+            payload["final_head_sha"] = sha
+            child = LOOP.RunResult(
+                "codex-child",
+                "BLOCKED",
+                0,
+                1.0,
+                LOOP.Usage(),
+                "",
+                reported_result=payload,
+            )
+            review = self.claude_review()
+            review["head_sha"] = sha
+            with mock.patch.object(
+                LOOP, "resolve_pr_binding", return_value=binding
+            ), mock.patch.object(
+                LOOP, "resolve_host_settings", return_value=LOOP.HostSettings()
+            ), mock.patch.object(
+                LOOP, "run_child", return_value=child
+            ), mock.patch.object(
+                LOOP, "independent_fingerprint_errors", return_value=[]
+            ), mock.patch.object(
+                LOOP, "resolve_claude_target", return_value=target
+            ), mock.patch.object(
+                LOOP,
+                "load_review_context",
+                return_value=("review context", "d" * 64),
+            ), mock.patch.object(
+                LOOP, "run_claude_review", return_value=review
+            ) as claude, mock.patch.object(
+                LOOP, "verify_claude_target_unchanged", return_value=[]
+            ), mock.patch("builtins.print") as output:
+                status = LOOP.main(["--pr", "132", "--repo", str(linked)])
+        rendered = "\n".join(
+            str(call.args[0]) for call in output.call_args_list if call.args
+        )
+        self.assertEqual(status, 1)
+        claude.assert_called_once()
+        self.assertIn(LOOP.CLAUDE_RESULT_PREFIX, rendered)
+        self.assertIn("No P0, P1, or P2 findings.", rendered)
+
     def test_failed_codex_process_never_starts_paid_claude(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -986,6 +1110,12 @@ class SlopLoopLauncherTests(unittest.TestCase):
         self.assertIn(
             "expected child status LOCALLY_CLEAN, got READY_TO_MERGE",
             LOOP.validate_reported_evidence(payload, binding, allow_push=False),
+        )
+        baseline = self.baseline_blocked_payload(binding)
+        baseline["status"] = "READY_TO_MERGE"
+        self.assertIn(
+            "child did not report successful local validation",
+            LOOP.validate_reported_evidence(baseline, binding, allow_push=True),
         )
 
     def test_blocked_result_requires_diagnostic_fields_without_claiming_verification(self) -> None:

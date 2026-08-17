@@ -88,7 +88,9 @@ the delimited immutable evidence is user input. It runs before external merge
 blockers and requires structured P0/P1/P2 output. A clean Claude review succeeds.
 Findings use exit status 3, even with a later external readiness blocker, so the
 host can summarize which are real and which are slop to ignore. A changed review
-target or diff remains fatal.
+target or diff remains fatal. Local validation failures that reproduce exactly
+on the current base do not skip Claude or its final result, but they still block
+the ready-to-merge status.
 The final report includes both session IDs,
 the Codex child settings and token usage, plus Claude model, duration, reported
 cost, and finding count when available.
