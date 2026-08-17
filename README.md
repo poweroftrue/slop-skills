@@ -1,11 +1,14 @@
 # Slop Skills
 
-Four focused Codex skills:
+Five focused Codex skills:
 
 - `$deslop` simplifies changed code and applies behavior-preserving fixes.
 - `$slopmeter` researches and reviews product-impacting defects without modifying code.
 - `$slop-fix` verifies and repairs P-level findings that belong to the pull
   request, and reports repairs that would widen its scope.
+- `$slop-loop` starts a matched Codex child session that reviews, repairs,
+  commits, and pushes one PR until two consecutive reviews are clean and the
+  remote PR is ready to merge.
 - `$slop-brief` explains pull requests in product language and automatically
   maintains a managed brief during authorized PR operations.
 
@@ -17,13 +20,15 @@ in this repository:
 - `plugins/slop-skills/skills/deslop/`
 - `plugins/slop-skills/skills/slopmeter/`
 - `plugins/slop-skills/skills/slop-fix/`
+- `plugins/slop-skills/skills/slop-loop/`
 - `plugins/slop-skills/skills/slop-brief/`
 - `plugins/slop-skills/.codex-plugin/plugin.json`
 - `.agents/plugins/marketplace.json`
 
 The owner-controlled Slopmeter regression registry and its self-contained
 fixtures live under `tests/slopmeter/`. Slop Fix contract tests live under
-`tests/slop-fix/`. Slop Brief publisher and trigger-contract tests live under
+`tests/slop-fix/`. Slop Loop contract and launcher tests live under
+`tests/slop-loop/`. Slop Brief publisher and trigger-contract tests live under
 `tests/slop-brief/`. Repository agents must
 follow `AGENTS.md`:
 registry semantics change only on explicit user request, every Slopmeter skill
@@ -45,7 +50,7 @@ A GitHub push does not directly rewrite an already installed Codex cache.
 ## Install
 
 Install Slop Skills as a plugin only. Do not also copy `deslop`, `slopmeter`,
-`slop-fix`, or `slop-brief` into `~/.codex/skills`; Codex treats standalone and
+`slop-fix`, `slop-loop`, or `slop-brief` into `~/.codex/skills`; Codex treats standalone and
 plugin-bundled skills as separate registrations, so installing both creates
 duplicate entries.
 
@@ -60,6 +65,7 @@ Start a new Codex thread, then run:
 $deslop pr #39
 $slopmeter pr #39
 $slop-fix pr #39
+$slop-loop pr #39
 $slop-brief pr #39
 ```
 
@@ -67,6 +73,16 @@ $slop-brief pr #39
 does not authorize a commit, push, rebase, PR update, review comment, merge, or
 deployment. It fixes verified P-level findings whose smallest correct repair
 belongs to the PR and reports findings that would require unrelated behavior.
+
+`$slop-loop` is also explicit-only. Its invocation with an exact existing PR
+authorizes one fresh Codex child session to repair that PR, create normal
+reason-preserving commits, and push only to its current head branch. It does not
+authorize a merge, force-push, history rewrite, review action, deployment, or
+another PR. Add `--no-push` for a local-only run. A successful published run
+requires two consecutive exact Slopmeter clean verdicts on the same source
+state, a clean pushed head, green required checks, no conflict, and no required
+review blocker. The final report includes child-session settings, token usage,
+cache reuse, and elapsed time.
 
 The canonical `slop-fix` skill also works with Prime Agent and Claude Code. For
 a local development checkout, link the same source directory instead of copying
@@ -104,7 +120,7 @@ version still appears, restart Codex and check again.
 
 ## Migrate an older standalone install
 
-If `$deslop`, `$slopmeter`, `$slop-fix`, or `$slop-brief` appears twice, keep
+If `$deslop`, `$slopmeter`, `$slop-fix`, `$slop-loop`, or `$slop-brief` appears twice, keep
 the plugin and disable old standalone registrations in `~/.codex/config.toml`
 using absolute paths:
 
@@ -119,6 +135,10 @@ enabled = false
 
 [[skills.config]]
 path = "/Users/you/.codex/skills/slop-fix/SKILL.md"
+enabled = false
+
+[[skills.config]]
+path = "/Users/you/.codex/skills/slop-loop/SKILL.md"
 enabled = false
 
 [[skills.config]]
@@ -140,6 +160,7 @@ To diagnose duplicates, compare the standalone and plugin registrations:
 ```bash
 find ~/.codex -type f -path '*/slopmeter/SKILL.md' -print
 find ~/.codex -type f -path '*/slop-fix/SKILL.md' -print
+find ~/.codex -type f -path '*/slop-loop/SKILL.md' -print
 find ~/.codex -type f -path '*/deslop/SKILL.md' -print
 find ~/.codex -type f \( -path '*/slop-brief/SKILL.md' -o -path '*/change-brief/SKILL.md' \) -print
 codex plugin list
@@ -171,11 +192,14 @@ PYTHON_BIN=/usr/bin/python3
 "$PYTHON_BIN" ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   plugins/slop-skills/skills/slop-fix
 "$PYTHON_BIN" ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
+  plugins/slop-skills/skills/slop-loop
+"$PYTHON_BIN" ~/.codex/skills/.system/skill-creator/scripts/quick_validate.py \
   plugins/slop-skills/skills/slop-brief
 "$PYTHON_BIN" ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py \
   plugins/slop-skills
 
 "$PYTHON_BIN" -m unittest discover -s tests/slop-fix -p 'test_*.py'
+"$PYTHON_BIN" -m unittest discover -s tests/slop-loop -p 'test_*.py'
 "$PYTHON_BIN" -m unittest discover -s tests/slop-brief -p 'test_*.py'
 
 git diff --check
@@ -202,6 +226,12 @@ trigger-description changes, also install the candidate plugin and use fresh,
 read-only Codex sessions to verify implicit selection for representative create,
 review, update, and merge prompts. Confirm explicit `$slopmeter` and `$deslop`
 requests do not select Slop Brief unless it is also named.
+
+For Slop Loop changes, run its full deterministic suite shown above and execute
+the launcher with `--dry-run` from a clean isolated PR worktree. Confirm that it reports the
+effective host model, reasoning effort, and service tier and that it does not
+start a child session. A real PR loop is a paid, mutating forward test and needs
+an explicit test PR and publication authorization.
 
 ### 4. Cachebust plugin payload changes
 
@@ -261,12 +291,12 @@ Verify all of the following before declaring the update complete:
 - `slop-skills@slop-skills` is `installed, enabled`.
 - Its installed version matches `plugins/slop-skills/.codex-plugin/plugin.json`.
 - `~/.codex/skills/deslop`, `~/.codex/skills/slopmeter`,
-  `~/.codex/skills/slop-fix`, and legacy
+  `~/.codex/skills/slop-fix`, `~/.codex/skills/slop-loop`, and legacy
   `~/.codex/skills/change-brief` registrations are absent or disabled with
   `[[skills.config]]` entries.
 - The repository is clean and synchronized with `origin/main`.
 - A new Codex thread shows exactly one `$deslop`, one `$slopmeter`, one
-  `$slop-fix`, and one `$slop-brief`.
+  `$slop-fix`, one `$slop-loop`, and one `$slop-brief`.
 
 If the selector is stale, restart Codex before changing installation state
 again.

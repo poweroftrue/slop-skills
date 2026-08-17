@@ -83,7 +83,7 @@ class SlopFixContractTests(unittest.TestCase):
     def test_plugin_advertises_slop_fix(self) -> None:
         manifest_text = json.dumps(self.manifest)
         self.assertIn("$slop-fix", manifest_text)
-        self.assertIn("four focused", self.manifest["description"].lower())
+        self.assertIn("five focused", self.manifest["description"].lower())
 
 
 if __name__ == "__main__":

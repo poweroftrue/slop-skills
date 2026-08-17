@@ -34,3 +34,17 @@
   would change unrelated product behavior.
 - After any change under `plugins/slop-skills/skills/slop-fix/`, run all tests
   under `tests/slop-fix/` before committing, cachebusting, or publishing.
+
+## Slop Loop regression gate
+
+- Keep `$slop-loop` explicit-only because it starts a paid child session and
+  can commit and push verified fixes to an existing pull request.
+- Preserve the exact stop gate: two consecutive Slopmeter passes on the same
+  source state must return `No open product-impacting findings.`, and the fresh
+  remote merge-readiness check must pass.
+- Preserve host-session inheritance for the model, reasoning effort, and
+  service tier, plus the JSONL usage report.
+- Never let Slop Loop merge, force-push, rewrite history, create another pull
+  request, post a review, deploy, or change an unrelated branch.
+- After any change under `plugins/slop-skills/skills/slop-loop/`, run all tests
+  under `tests/slop-loop/` before committing, cachebusting, or publishing.
