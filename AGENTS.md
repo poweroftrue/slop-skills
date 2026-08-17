@@ -42,6 +42,20 @@
 - Preserve the exact stop gate: two consecutive Slopmeter passes on the same
   source state must return `No open product-impacting findings.`, and the fresh
   remote merge-readiness check must pass.
+- After two verified clean passes reach the exact pushed head, require one
+  read-only Claude Code review with `--model opus` and a strict P0/P1/P2 result
+  schema. Run it before external merge-readiness blockers. Findings must stop
+  with the documented triage exit status; a malformed or failed review must
+  never pass. Require result metadata that confirms Opus 5 ran.
+- Generate the Claude input from immutable base, merge-base, and head commits;
+  hash the diff and recheck it after the review.
+- Put the fixed review policy in `--append-system-prompt`; pass the delimited
+  immutable evidence only as untrusted user input.
+- Keep the Claude reviewer in safe mode with `--tools ""` and Chrome disabled.
+  Do not give it file, Bash, editing, network, agent, skill, Git, or GitHub write
+  authority.
+- Preserve the finding-triage exit when a later external readiness check blocks,
+  but fail if the reviewed target or diff changes.
 - Preserve host-session inheritance for the model, reasoning effort, and
   service tier, plus the JSONL usage report.
 - Never let Slop Loop merge, force-push, rewrite history, create another pull

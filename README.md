@@ -7,8 +7,8 @@ Five focused Codex skills:
 - `$slop-fix` verifies and repairs P-level findings that belong to the pull
   request, and reports repairs that would widen its scope.
 - `$slop-loop` starts a matched Codex child session that reviews, repairs,
-  commits, and pushes one PR until two consecutive reviews are clean and the
-  remote PR is ready to merge.
+  commits, and pushes one PR until two consecutive reviews are clean, verifies
+  the remote PR, then waits for a read-only Claude Opus 5 P-level review.
 - `$slop-brief` explains pull requests in product language and automatically
   maintains a managed brief during authorized PR operations.
 
@@ -81,8 +81,17 @@ authorize a merge, force-push, history rewrite, review action, deployment, or
 another PR. Add `--no-push` for a local-only run. A successful published run
 requires two consecutive exact Slopmeter clean verdicts on the same source
 state, a clean pushed head, green required checks, no conflict, and no required
-review blocker. The final report includes child-session settings, token usage,
-cache reuse, and elapsed time.
+review blocker. After the clean state is pushed, the launcher builds an
+immutable, hashed PR diff and runs Claude Code with the current `opus` alias in
+safe no-tools mode. The fixed review policy is a system instruction, while only
+the delimited immutable evidence is user input. It runs before external merge
+blockers and requires structured P0/P1/P2 output. A clean Claude review succeeds.
+Findings use exit status 3, even with a later external readiness blocker, so the
+host can summarize which are real and which are slop to ignore. A changed review
+target or diff remains fatal.
+The final report includes both session IDs,
+the Codex child settings and token usage, plus Claude model, duration, reported
+cost, and finding count when available.
 
 The canonical `slop-fix` skill also works with Prime Agent and Claude Code. For
 a local development checkout, link the same source directory instead of copying
@@ -230,8 +239,11 @@ requests do not select Slop Brief unless it is also named.
 For Slop Loop changes, run its full deterministic suite shown above and execute
 the launcher with `--dry-run` from a clean isolated PR worktree. Confirm that it reports the
 effective host model, reasoning effort, and service tier and that it does not
-start a child session. A real PR loop is a paid, mutating forward test and needs
-an explicit test PR and publication authorization.
+start a child or Claude session. The deterministic suite must use a fake Claude
+executable to prove the Opus command, read-only tool boundary, strict P-level
+parser, clean result, and triage exit. A real PR loop uses paid Codex and Claude
+sessions and is a mutating forward test, so it needs an explicit test PR and
+publication authorization.
 
 ### 4. Cachebust plugin payload changes
 

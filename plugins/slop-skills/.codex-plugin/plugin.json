@@ -1,6 +1,6 @@
 {
   "name": "slop-skills",
-  "version": "0.1.0+codex.20260817122337",
+  "version": "0.1.0+codex.20260817131835",
   "description": "Five focused Codex skills for code cleanup, read-only review, scoped finding repair, autonomous PR review-and-fix loops, and pull request briefs.",
   "author": {
     "name": "poweroftrue",
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "Slop Skills",
     "shortDescription": "Clean code, review risk, fix findings, loop, and explain PRs.",
-    "longDescription": "Deslop applies behavior-preserving cleanup. Slopmeter performs a research-first, strictly read-only product review. Slop Fix verifies and repairs P-level findings that belong to the pull request without widening scope. Slop Loop runs those review and repair stages in a fresh matched Codex session until two clean passes prove an existing PR ready to merge. Slop Brief explains pull requests in product language and keeps an authorized PR's managed brief current.",
+    "longDescription": "Deslop applies behavior-preserving cleanup. Slopmeter performs a research-first, strictly read-only product review. Slop Fix verifies and repairs P-level findings that belong to the pull request without widening scope. Slop Loop runs those review and repair stages in a fresh matched Codex session, verifies two clean pushed passes, then runs a read-only Claude Opus 5 P-level review for final triage. Slop Brief explains pull requests in product language and keeps an authorized PR's managed brief current.",
     "developerName": "poweroftrue",
     "category": "Productivity",
     "capabilities": [
@@ -30,7 +30,7 @@
       "Use $deslop to simplify this change.",
       "Use $slopmeter to review this PR without changing code.",
       "Use $slop-fix to verify and repair the findings that belong to this pull request.",
-      "Use $slop-loop on this PR until two consecutive Slopmeter passes are clean and it is ready to merge.",
+      "Use $slop-loop on this PR until two consecutive Slopmeter passes are clean, then run the read-only Claude Opus 5 review and triage its P-level findings.",
       "Use $slop-brief to explain this pull request and keep its managed brief current."
     ]
   }

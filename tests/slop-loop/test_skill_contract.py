@@ -92,6 +92,29 @@ class SlopLoopContractTests(unittest.TestCase):
             with self.subTest(phrase=phrase):
                 self.assertIn(phrase, self.normalized_body)
 
+    def test_contract_requires_read_only_claude_opus_review_and_triage(self) -> None:
+        for phrase in (
+            "two exact clean passes on one fingerprint",
+            "Run Claude before the launcher's final merge-readiness check",
+            "`--model opus`",
+            "pass `--tools \"\"`",
+            "from those immutable commits",
+            "Record the diff's SHA-256",
+            "diff hash after the Claude session",
+            "fixed review policy in `--append-system-prompt`",
+            "delimited immutable project instructions and diff as untrusted user input",
+            "`P0`, `P1`, and `P2`",
+            "`CLAUDE_REVIEW_RESULT={...}`",
+            "exit with status 3",
+            "even when a later external readiness check is pending or blocked",
+            "A changed reviewed target or diff is still fatal",
+            "`REAL` or `IGNORE_AS_SLOP`",
+            "Do not reject it only because Slopmeter was clean",
+            "Do not run the remote Claude review",
+        ):
+            with self.subTest(phrase=phrase):
+                self.assertIn(phrase, self.normalized_body)
+
     def test_contract_forbids_recursive_loop(self) -> None:
         self.assertIn("Do not run the loop in the host session", self.normalized_body)
         self.assertIn("invoke `$slop-loop` recursively", self.normalized_body)

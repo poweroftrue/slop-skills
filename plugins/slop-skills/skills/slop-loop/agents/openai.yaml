@@ -1,6 +1,6 @@
 interface:
   display_name: "Slop Loop"
-  short_description: "Review and repair a PR until it is clean"
-  default_prompt: "Use $slop-loop on PR #132 until two consecutive Slopmeter passes are clean and the pull request is ready to merge."
+  short_description: "Repair a PR, then run an Opus 5 review"
+  default_prompt: "Use $slop-loop on PR #132 until two consecutive Slopmeter passes are clean, push the verified repair, then run the read-only Claude Opus 5 review and triage any P0/P1/P2 findings."
 policy:
   allow_implicit_invocation: false

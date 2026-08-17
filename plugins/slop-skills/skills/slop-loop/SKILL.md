@@ -5,17 +5,19 @@ description: >-
   request in a fresh Codex child session. The child inherits the host model,
   reasoning effort, and fast/service-tier setting; runs $slopmeter, uses
   $slop-fix for every verified P-level finding, commits and pushes the clean
-  repair to the existing PR head, and stops only after two consecutive clean
-  Slopmeter passes and a fresh merge-readiness check. Use only when the user
-  explicitly invokes $slop-loop with an exact PR. Its explicit invocation
-  authorizes commits and pushes to that PR head only; it never authorizes a
+  repair to the existing PR head, requires two consecutive clean Slopmeter
+  passes, waits for a read-only Claude Opus 5 review in P0/P1/P2 format, and
+  performs a fresh merge-readiness check. Use only when the user explicitly invokes
+  $slop-loop with an exact PR. Its explicit invocation authorizes paid review
+  sessions plus commits and pushes to that PR head only; it never authorizes a
   merge, force-push, history rewrite, deployment, or unrelated external change.
 ---
 
 # Slop Loop
 
-Run the whole review-and-repair cycle in one fresh Codex child session. Keep the
-host session as the supervisor and return the child's result and measured usage.
+Run the review-and-repair cycle in one fresh Codex child session. Keep the host
+session as the supervisor. After the clean pushed result passes independent
+checks, run one read-only Claude Opus 5 review and return both sessions' results.
 
 ## Authority boundary
 
@@ -127,7 +129,8 @@ The child must follow this state machine exactly:
 For `--no-push`, never commit, push, or require local-to-remote equality. Keep
 the verified local changes in the isolated worktree. After two local clean
 passes on the same source-state fingerprint and two successful local validation
-runs, finish as `LOCALLY_CLEAN` and keep the changed worktree for the user.
+runs, finish as `LOCALLY_CLEAN` and keep the changed worktree for the user. Do
+not run the remote Claude review because the repaired state was not pushed.
 
 Do not set a fixed review-count limit. Stop as `BLOCKED` when the same findings
 and same source-state fingerprint repeat after two complete repair attempts, or
@@ -168,7 +171,55 @@ requires all of these facts at the same time:
 Poll a pending check for a reasonable repository-supported period. If a check,
 approval, merge queue, permission, or platform state remains external to the
 authorized code repair, stop as `BLOCKED`; do not loop without new evidence and
-do not claim that the PR is ready.
+do not claim that the PR is ready. When this happens after two clean pushed
+passes, keep the worktree clean and include both pass fingerprints, successful
+local validation, exact final head, and remote branch in the `BLOCKED` result so
+the launcher can still run Phase 4.
+
+## Phase 4 — Run the independent Claude Opus 5 review
+
+For a publishing run, the launcher must do this after a successful Codex process
+reports two exact clean passes on one fingerprint, successful validation, a
+clean worktree, and the exact pushed PR head. This includes a `BLOCKED` child
+whose only remaining Phase 3 condition is external, such as a pending check or
+missing approval. Run Claude before the launcher's final merge-readiness check,
+so an external merge blocker cannot skip the requested independent review.
+
+1. Resolve the current base and head commit SHAs, compute their merge base, and
+   generate the PR diff locally from those immutable commits. Record the diff's
+   SHA-256 and include tracked `AGENTS.md` content from the reviewed head.
+2. Start Claude Code in print mode with
+   `--model opus`, maximum effort, JSON output, and a strict schema whose only
+   finding priorities are `P0`, `P1`, and `P2`. The `opus` alias selects the
+   current Opus 5 model rather than a stale versioned name.
+3. Use safe mode, disable Chrome, and pass `--tools ""` plus an empty allowed
+   tool set. Keep the explicit disallowed list as defense in depth. Put the fixed
+   review policy in `--append-system-prompt`. Supply only the delimited immutable
+   project instructions and diff as untrusted user input through standard input.
+   The paid Claude session must not read other host files, edit source, run
+   commands, use a network tool, change Git or GitHub, post a review, or deploy.
+4. Wait for the complete Claude result. Require its usage metadata to confirm
+   that an Opus 5 model performed the review. Reject prose-only, malformed,
+   errored, wrong-model, or non-P-level output. A finding must state its
+   priority, title, exact location, technical problem, reachable product impact,
+   evidence, and smallest fix.
+5. Recheck the local head, remote base and head, merge base, and diff hash after
+   the Claude session. Fail if any reviewed input changed. Then run the full
+   merge-readiness gate for a child that claimed `READY_TO_MERGE`.
+6. Emit the complete machine-readable review as
+   `CLAUDE_REVIEW_RESULT={...}`. A clean review exits successfully. One or more
+   findings exit with status 3 to require host triage, even when a later external
+   readiness check is pending or blocked. A changed reviewed target or diff is
+   still fatal. This is not permission to post the review to GitHub.
+
+When Claude returns findings, the host must give the user a short table or list
+that classifies every finding as `REAL` or `IGNORE_AS_SLOP` and gives one
+evidence-based reason. Treat a finding as slop only when it is outside the PR,
+pre-existing, unreachable, contradicted by source or tests, only stylistic, or
+has no material product impact. Do not reject it only because Slopmeter was
+clean. Any real P-level finding prevents a final ready-to-merge conclusion; say
+what must be fixed. If all findings are slop, say that the independent review
+does not block the already verified PR.
 
 ## Child final contract
 
@@ -197,12 +248,15 @@ Then report:
 - remaining blockers or risk.
 
 Only use `READY_TO_MERGE` when every Phase 3 condition passes. The launcher adds
-its own independent local and GitHub checks before it accepts that status. It
+an independent fingerprint and pushed-head check, runs Phase 4, and then repeats
+the independent local and GitHub checks for full readiness before it accepts
+that child status. It
 rejects a mismatched PR, head, branch, dirty worktree, failed or pending required
 check, merge conflict, review blocker, incomplete clean-pass evidence, a final
 worktree fingerprint that differs from the two reviewed clean passes, or a
-`READY_TO_MERGE` result from `--no-push`. The usage report includes child session
-ID, inherited settings, turns, input tokens, cached input tokens, uncached input
-tokens, cache reuse rate, output tokens, reasoning output tokens, reported total
-tokens, elapsed time, child status, and process exit status. Do not estimate
-money from token counts.
+`READY_TO_MERGE` result from `--no-push`. The usage report includes Codex child
+session settings and token metrics plus the Claude session ID, reported model,
+turns, elapsed time, exact reported cost when available, status, and finding
+count. Codex token metrics include input tokens, cached input tokens, uncached
+input tokens, cache reuse rate, output tokens, reasoning output tokens, and
+reported total tokens. Do not estimate money from token counts.
