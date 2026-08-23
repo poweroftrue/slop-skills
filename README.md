@@ -1,6 +1,6 @@
 # Slop Skills
 
-Four focused Codex skills:
+Four focused Codex and Oh My Pi (OMP) skills:
 
 - `$deslop` simplifies changed code and applies behavior-preserving fixes.
 - `$slopmeter` researches and reviews product-impacting defects without modifying code.
@@ -20,6 +20,7 @@ in this repository:
 - `plugins/slop-skills/skills/slop-brief/`
 - `plugins/slop-skills/.codex-plugin/plugin.json`
 - `.agents/plugins/marketplace.json`
+- `.omp-plugin/marketplace.json`
 
 The owner-controlled Slopmeter regression registry and its self-contained
 fixtures live under `tests/slopmeter/`. Slop Fix contract tests live under
@@ -45,23 +46,30 @@ A GitHub push does not directly rewrite an already installed Codex cache.
 ## Install
 
 Install Slop Skills as a plugin only. Do not also copy `deslop`, `slopmeter`,
-`slop-fix`, or `slop-brief` into `~/.codex/skills`; Codex treats standalone and
-plugin-bundled skills as separate registrations, so installing both creates
-duplicate entries.
+`slop-fix`, or `slop-brief` into a harness's standalone skill directory while
+the plugin is enabled; duplicate registrations can produce collisions.
+
+### Codex
 
 ```bash
 codex plugin marketplace add poweroftrue/slop-skills --ref main
 codex plugin add slop-skills@slop-skills
 ```
 
-Start a new Codex thread, then run:
+Start a new Codex thread, then invoke `$deslop`, `$slopmeter`, `$slop-fix`, or
+`$slop-brief`.
 
-```text
-$deslop pr #39
-$slopmeter pr #39
-$slop-fix pr #39
-$slop-brief pr #39
+### Oh My Pi
+
+```bash
+omp plugin marketplace add poweroftrue/slop-skills
+omp plugin install slop-skills@slop-skills
 ```
+
+Start a new OMP session, then invoke `/skill:deslop`, `/skill:slopmeter`,
+`/skill:slop-fix`, or `/skill:slop-brief`. OMP can also select a skill when the
+request directly matches its description. `slop-fix` activates only for a
+direct repair request or `/skill:slop-fix`, never for a read-only review.
 
 `$slop-fix` is explicit-only. It authorizes local source and test edits, but it
 does not authorize a commit, push, rebase, PR update, review comment, merge, or
@@ -101,6 +109,13 @@ codex plugin list
 Confirm that `slop-skills@slop-skills` is `installed, enabled` and shows the
 new manifest version. Start a new Codex thread after upgrading. If the old
 version still appears, restart Codex and check again.
+
+For OMP, update the marketplace and installed plugin, then start a new session:
+
+```bash
+omp plugin marketplace update slop-skills
+omp plugin upgrade slop-skills@slop-skills
+```
 
 ## Migrate an older standalone install
 
@@ -177,6 +192,7 @@ PYTHON_BIN=/usr/bin/python3
 
 "$PYTHON_BIN" -m unittest discover -s tests/slop-fix -p 'test_*.py'
 "$PYTHON_BIN" -m unittest discover -s tests/slop-brief -p 'test_*.py'
+"$PYTHON_BIN" -m unittest discover -s tests/omp -p 'test_*.py'
 
 git diff --check
 ```
@@ -191,17 +207,25 @@ against the canonical source skill:
 
 ```bash
 tests/slopmeter/run_e2e.sh
+tests/slopmeter/run_e2e.sh --harness omp
 ```
 
 A partial `--case` run does not satisfy this release gate. Do not alter case
 fixtures or expectations to make a skill change pass unless the user explicitly
 requests that test change.
 
+After OMP marketplace or skill-routing changes, also run the isolated install
+check and fresh-session explicit, implicit, and explicit-only probes:
+
+```bash
+tests/omp/run_fresh_sessions.sh
+```
+
 For Slop Brief changes, run the full deterministic suite shown above. For
-trigger-description changes, also install the candidate plugin and use fresh,
-read-only Codex sessions to verify implicit selection for representative create,
-review, update, and merge prompts. Confirm explicit `$slopmeter` and `$deslop`
-requests do not select Slop Brief unless it is also named.
+trigger-description changes, use fresh, read-only Codex and OMP sessions to
+verify implicit selection for representative create, review, update, and merge
+prompts. Confirm explicit Slopmeter and Deslop requests do not select Slop Brief
+unless it is also named.
 
 ### 4. Cachebust plugin payload changes
 

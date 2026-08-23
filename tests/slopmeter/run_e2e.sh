@@ -8,14 +8,16 @@ REGISTRY="$SCRIPT_DIR/cases.json"
 FIXTURES="$SCRIPT_DIR/fixtures"
 SKILL="$REPO_ROOT/plugins/slop-skills/skills/slopmeter/SKILL.md"
 CODEX_BIN="${CODEX_BIN:-codex}"
+OMP_BIN="${OMP_BIN:-omp}"
+HARNESS="codex"
 MODE="run"
 SELECTED_CASE=""
 
 usage() {
   cat <<'EOF'
-Usage: tests/slopmeter/run_e2e.sh [--list | --validate | --case CASE_ID]
+Usage: tests/slopmeter/run_e2e.sh [--harness codex|omp] [--list | --validate | --case CASE_ID]
 
-With no option, runs every owner-approved regression case.
+With no option, runs every owner-approved regression case with Codex.
 EOF
 }
 
@@ -26,6 +28,11 @@ fail() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --harness)
+      [[ $# -ge 2 ]] || fail "--harness requires codex or omp"
+      HARNESS="$2"
+      shift 2
+      ;;
     --list)
       MODE="list"
       shift
@@ -48,6 +55,9 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+[[ "$HARNESS" == "codex" || "$HARNESS" == "omp" ]] ||
+  fail "--harness must be codex or omp"
 
 validate_registry() {
   command -v git >/dev/null || fail "git is required"
@@ -144,23 +154,51 @@ materialize_fixture() {
 }
 
 extract_final_message() {
-  jq -sr '
-    [.[] | select(.type == "item.completed" and .item.type == "agent_message") | .item.text]
-    | last // ""
-  ' "$1"
+  if [[ "$HARNESS" == "omp" ]]; then
+    jq -sr '
+      [
+        .[]
+        | select(.type == "message_end" and .message.role == "assistant")
+        | [.message.content[]? | select(.type == "text") | .text] | join("\n")
+        | select(length > 0)
+      ]
+      | last // ""
+    ' "$1"
+  else
+    jq -sr '
+      [.[] | select(.type == "item.completed" and .item.type == "agent_message") | .item.text]
+      | last // ""
+    ' "$1"
+  fi
 }
 
 extract_command_trace() {
-  jq -sr '
-    [
-      .[]
-      | select((.type == "item.started" or .type == "item.completed") and .item.type == "command_execution")
-      | .item.command
-      | select(type == "string")
-    ]
-    | unique
-    | join("\n")
-  ' "$1"
+  if [[ "$HARNESS" == "omp" ]]; then
+    jq -sr '
+      [
+        .[]
+        | select(
+            .type == "tool_execution_start" and
+            (.toolName == "bash" or .toolName == "eval")
+          )
+        | if .toolName == "bash" then .args.command else .args.code end
+        | select(type == "string")
+      ]
+      | unique
+      | join("\n")
+    ' "$1"
+  else
+    jq -sr '
+      [
+        .[]
+        | select((.type == "item.started" or .type == "item.completed") and .item.type == "command_execution")
+        | .item.command
+        | select(type == "string")
+      ]
+      | unique
+      | join("\n")
+    ' "$1"
+  fi
 }
 
 assert_finding_contract() {
@@ -194,8 +232,8 @@ assert_pattern() {
 run_case() {
   local case_id="$1"
   local case_json fixture head runtime prompt verdict finding_counts workdir fixture_repo prompt_file events output command_trace pattern
-  local docker_host docker_socket
-  local -a codex_args
+  local docker_host docker_socket dirty
+  local -a agent_args
 
   case_json="$(jq -c --arg id "$case_id" '.cases[] | select(.id == $id)' "$REGISTRY")"
   [[ -n "$case_json" ]] || fail "unknown case: $case_id"
@@ -214,22 +252,19 @@ run_case() {
   events="$workdir/events.jsonl"
 
   materialize_fixture "$fixture" "$head" "$fixture_repo"
-  {
-    printf '%s\n' 'Follow the exact Slopmeter skill instructions below as the active review procedure.'
-    printf '%s\n' '<slopmeter-skill>'
-    cat "$SKILL"
-    printf '%s\n' '</slopmeter-skill>'
-    printf '\nUser request:\n%s\n' "$prompt"
-  } >"$prompt_file"
+  if [[ "$HARNESS" == "omp" ]]; then
+    printf '/skill:slopmeter\n\n%s\n' "$prompt" >"$prompt_file"
+  else
+    {
+      printf '%s\n' 'Follow the exact Slopmeter skill instructions below as the active review procedure.'
+      printf '%s\n' '<slopmeter-skill>'
+      cat "$SKILL"
+      printf '%s\n' '</slopmeter-skill>'
+      printf '\nUser request:\n%s\n' "$prompt"
+    } >"$prompt_file"
+  fi
 
-  printf 'RUN  %s\n' "$case_id"
-  codex_args=(
-    exec
-    --ephemeral
-    --ignore-user-config
-    --ignore-rules
-    -c 'model_reasoning_effort="high"'
-  )
+  printf 'RUN  %s (%s)\n' "$case_id" "$HARNESS"
   if [[ "$runtime" == "docker" ]]; then
     command -v docker >/dev/null || fail "$case_id requires Docker"
     docker_host="$(docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)" ||
@@ -241,19 +276,55 @@ run_case() {
       fail "$case_id resolved an invalid Docker socket"
     docker image inspect postgres:16-alpine >/dev/null 2>&1 ||
       fail "$case_id requires the preloaded postgres:16-alpine image"
-    codex_args+=(
-      -c 'default_permissions="slopmeter-e2e-docker"'
-      -c 'permissions.slopmeter-e2e-docker.extends=":read-only"'
-      -c 'permissions.slopmeter-e2e-docker.network.enabled=true'
-      -c "permissions.slopmeter-e2e-docker.network.unix_sockets={\"$docker_socket\"=\"allow\"}"
-    )
-  else
-    codex_args+=(--sandbox read-only)
   fi
-  codex_args+=(--cd "$fixture_repo" --json -)
 
-  if ! "$CODEX_BIN" "${codex_args[@]}" <"$prompt_file" >"$events"; then
-    printf 'FAIL %s (Codex execution failed; artifacts: %s)\n' "$case_id" "$workdir" >&2
+  if [[ "$HARNESS" == "omp" ]]; then
+    agent_args=(
+      -p
+      --mode json
+      --no-session
+      --no-title
+      --no-rules
+      --max-time 20m
+      --thinking high
+      --approval-mode yolo
+      --plugin-dir "$REPO_ROOT/plugins/slop-skills"
+      --skills slopmeter
+      --cwd "$fixture_repo"
+    )
+    if ! "$OMP_BIN" "${agent_args[@]}" <"$prompt_file" >"$events"; then
+      printf 'FAIL %s (OMP execution failed; artifacts: %s)\n' "$case_id" "$workdir" >&2
+      return 1
+    fi
+  else
+    agent_args=(
+      exec
+      --ephemeral
+      --ignore-user-config
+      --ignore-rules
+      -c 'model_reasoning_effort="high"'
+    )
+    if [[ "$runtime" == "docker" ]]; then
+      agent_args+=(
+        -c 'default_permissions="slopmeter-e2e-docker"'
+        -c 'permissions.slopmeter-e2e-docker.extends=":read-only"'
+        -c 'permissions.slopmeter-e2e-docker.network.enabled=true'
+        -c "permissions.slopmeter-e2e-docker.network.unix_sockets={\"$docker_socket\"=\"allow\"}"
+      )
+    else
+      agent_args+=(--sandbox read-only)
+    fi
+    agent_args+=(--cd "$fixture_repo" --json -)
+    if ! "$CODEX_BIN" "${agent_args[@]}" <"$prompt_file" >"$events"; then
+      printf 'FAIL %s (Codex execution failed; artifacts: %s)\n' "$case_id" "$workdir" >&2
+      return 1
+    fi
+  fi
+
+  dirty="$(git -C "$fixture_repo" status --short)"
+  if [[ -n "$dirty" ]]; then
+    printf 'FAIL %s (review changed the fixture repository)\n%s\n' "$case_id" "$dirty" >&2
+    printf 'Artifacts: %s\n' "$workdir" >&2
     return 1
   fi
 
@@ -314,7 +385,11 @@ if [[ "$MODE" == "validate" ]]; then
   exit 0
 fi
 
-command -v "$CODEX_BIN" >/dev/null || fail "Codex CLI is required: $CODEX_BIN"
+if [[ "$HARNESS" == "omp" ]]; then
+  command -v "$OMP_BIN" >/dev/null || fail "OMP CLI is required: $OMP_BIN"
+else
+  command -v "$CODEX_BIN" >/dev/null || fail "Codex CLI is required: $CODEX_BIN"
+fi
 
 if [[ -n "$SELECTED_CASE" ]]; then
   run_case "$SELECTED_CASE"

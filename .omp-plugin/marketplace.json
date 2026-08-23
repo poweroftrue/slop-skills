@@ -1,0 +1,28 @@
+{
+  "name": "slop-skills",
+  "owner": {
+    "name": "poweroftrue"
+  },
+  "metadata": {
+    "description": "Slop Skills for Oh My Pi"
+  },
+  "plugins": [
+    {
+      "name": "slop-skills",
+      "description": "Clean changed code, review product risk, repair verified findings, and explain pull requests.",
+      "source": "./plugins/slop-skills",
+      "author": {
+        "name": "poweroftrue"
+      },
+      "homepage": "https://github.com/poweroftrue/slop-skills",
+      "repository": "https://github.com/poweroftrue/slop-skills",
+      "category": "productivity",
+      "keywords": [
+        "code-review",
+        "pull-requests",
+        "simplification",
+        "maintainability"
+      ]
+    }
+  ]
+}

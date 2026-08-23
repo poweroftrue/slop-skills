@@ -35,17 +35,20 @@ registry `head` selects a named candidate directory so finding and clean
 variants can share one identical production-shaped base.
 
 Cases marked with registry `runtime: "docker"` keep the fixture repository
-read-only through a named Codex permission profile and allow the active local
-Docker Unix socket. Current Codex/macOS permission profiles require their
-network capability to be enabled for that socket, so the runner also refuses
-remote Docker contexts, admits no production credentials, requires the
-`postgres:16-alpine` image to be present already, and never pulls an image.
-The disposable database publishes no port and starts with `--network none`.
+read-only through a named Codex permission profile when Codex runs. OMP cases
+run in fresh, ephemeral sessions and the runner rejects any fixture-repository
+mutation after each review. Both harnesses use only the active local Docker Unix
+socket; the runner refuses remote Docker contexts, admits no production
+credentials, requires the `postgres:16-alpine` image to be present already, and
+never pulls an image. The disposable database publishes no port and starts with
+`--network none`.
 
-Run the mandatory full gate after every Slopmeter skill change:
+Run the mandatory Codex gate after every Slopmeter skill change. Run both gates
+for OMP packaging or compatibility changes:
 
 ```bash
 tests/slopmeter/run_e2e.sh
+tests/slopmeter/run_e2e.sh --harness omp
 ```
 
 Useful local commands:
@@ -54,9 +57,10 @@ Useful local commands:
 tests/slopmeter/run_e2e.sh --list
 tests/slopmeter/run_e2e.sh --validate
 tests/slopmeter/run_e2e.sh --case runtime-formatting-after-app-boot
+tests/slopmeter/run_e2e.sh --harness omp --case runtime-formatting-after-app-boot
 ```
 
-The runner requires `codex`, `git`, `jq`, and Ruby. Each case starts a fresh,
-ephemeral, read-only Codex session. Expected answers are used only by the local
-classifier after the review finishes; they are never included in the review
-prompt.
+The runner requires `git`, `jq`, Ruby, and the selected `codex` or `omp`
+executable. Each case starts a fresh, ephemeral session. Expected answers are
+used only by the local classifier after the review finishes; they are never
+included in the review prompt.

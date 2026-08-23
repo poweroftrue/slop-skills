@@ -9,6 +9,17 @@
 - If another plugin change can affect Slopmeter behavior, run the same full suite.
 - A partial `--case` run is useful while iterating, but it does not satisfy the release gate.
 
+## OMP regression gate
+
+- Keep `.omp-plugin/marketplace.json` pointed at the canonical
+  `plugins/slop-skills` source; do not copy skill payloads for OMP.
+- Keep `slop-fix` limited to `/skill:slop-fix` or a direct request to repair
+  review findings; verify OMP does not select it for read-only review work.
+- After OMP marketplace, discovery, or routing changes, run all tests under
+  `tests/omp/` and `tests/omp/run_fresh_sessions.sh`.
+- If a change can affect Slopmeter under OMP, also run the complete
+  `tests/slopmeter/run_e2e.sh --harness omp` gate. A partial case is not enough.
+
 ## Slop Brief regression gate
 
 - Keep `$slop-brief` implicitly invocable for general pull-request operations,
