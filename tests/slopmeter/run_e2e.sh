@@ -15,7 +15,7 @@ SELECTED_CASE=""
 
 usage() {
   cat <<'EOF'
-Usage: tests/slopmeter/run_e2e.sh [--harness codex|omp] [--list | --validate | --case CASE_ID]
+Usage: tests/slopmeter/run_e2e.sh [--harness codex|omp] [--list | --validate | --self-test | --case CASE_ID]
 
 With no option, runs every owner-approved regression case with Codex.
 EOF
@@ -39,6 +39,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --validate)
       MODE="validate"
+      shift
+      ;;
+    --self-test)
+      MODE="self-test"
       shift
       ;;
     --case)
@@ -204,23 +208,65 @@ extract_command_trace() {
 assert_finding_contract() {
   local output="$1"
   local expected_counts="$2"
-  local heading_count status_count problem_count solution_count impact_count product_solution_count
+  local context_count heading_count status_count problem_count solution_count impact_count product_solution_count
 
-  [[ "$output" =~ ^1\.\ \*\*P[012]\ \— ]] || return 1
-  heading_count="$(printf '%s\n' "$output" | grep -Ec '^[0-9]+\. \*\*P[012]')"
+  [[ "$output" =~ ^##\ Change\ context ]] || return 1
+  context_count="$(printf '%s\n' "$output" | grep -Ec '^## Change context$')"
+  heading_count="$(printf '%s\n' "$output" | grep -Ec '^## Finding [0-9]+ — P[012] — .+')"
+  [[ "$context_count" -eq 1 ]] || return 1
   [[ ",$expected_counts," == *",$heading_count,"* ]] || return 1
-  status_count="$(printf '%s\n' "$output" | grep -Fc 'Status: ❌ Open')"
-  problem_count="$(printf '%s\n' "$output" | grep -Fc 'Technical problem:')"
-  solution_count="$(printf '%s\n' "$output" | grep -Fc 'Technical solution:')"
-  impact_count="$(printf '%s\n' "$output" | grep -Fc 'Product impact:')"
-  product_solution_count="$(printf '%s\n' "$output" | grep -Fc 'Product solution:')"
+  status_count="$(printf '%s\n' "$output" | grep -Fc '**Status:** ❌ Open')"
+  problem_count="$(printf '%s\n' "$output" | grep -Fc '**Technical problem:**')"
+  solution_count="$(printf '%s\n' "$output" | grep -Fc '**Technical solution:**')"
+  impact_count="$(printf '%s\n' "$output" | grep -Fc '**Product impact:**')"
+  product_solution_count="$(printf '%s\n' "$output" | grep -Fc '**Product solution:**')"
   [[ "$status_count" -eq "$heading_count" ]] &&
     [[ "$problem_count" -eq "$heading_count" ]] &&
     [[ "$solution_count" -eq "$heading_count" ]] &&
     [[ "$impact_count" -eq "$heading_count" ]] &&
     [[ "$product_solution_count" -eq "$heading_count" ]] &&
     printf '%s\n' "$output" |
-      ruby -e 'expected = Integer(ARGV.fetch(0)); numbers = STDIN.read.scan(/^(\d+)\. \*\*P[012] —/).flatten.map(&:to_i); exit(numbers == (1..expected).to_a ? 0 : 1)' "$heading_count"
+      ruby -e 'expected = Integer(ARGV.fetch(0)); text = STDIN.read; numbers = text.scan(/^## Finding (\d+) — P[012] — /).flatten.map(&:to_i); context = text[/^## Change context\n\n([^\n]+)$/, 1]; exit(numbers == (1..expected).to_a && context && !context.strip.empty? ? 0 : 1)' "$heading_count"
+}
+
+self_test_finding_contract() {
+  local valid invalid_missing_context invalid_list_shape
+  valid='## Change context
+
+Storefront PR #42 changes checkout retries so temporary provider failures recover.
+
+## Finding 1 — P2 — Retry window ends too early
+
+**Status:** ❌ Open
+
+**Technical problem:** A delayed retry expected 1 queued attempt, got 0.
+
+**Technical solution:** Start a fresh bounded retry window.
+
+**Product impact:** A customer order can stop after one temporary failure.
+
+**Product solution:** Temporary failures must use the normal retry window.'
+  invalid_missing_context="${valid#*$'## Finding 1'}"
+  invalid_missing_context="## Finding 1${invalid_missing_context}"
+  invalid_list_shape='1. **P2 — Retry window ends too early**
+   **Status: ❌ Open**
+
+   **Technical problem:** A delayed retry expected 1 queued attempt, got 0.
+
+   **Technical solution:** Start a fresh bounded retry window.
+
+   **Product impact:** A customer order can stop after one temporary failure.
+
+   **Product solution:** Temporary failures must use the normal retry window.'
+
+  assert_finding_contract "$valid" "1" || fail "valid finding contract was rejected"
+  if assert_finding_contract "$invalid_missing_context" "1"; then
+    fail "finding contract accepted output without change context"
+  fi
+  if assert_finding_contract "$invalid_list_shape" "1"; then
+    fail "finding contract accepted the congested list shape"
+  fi
+  printf 'Finding output contract is valid.\n'
 }
 
 assert_pattern() {
@@ -382,6 +428,11 @@ fi
 
 if [[ "$MODE" == "validate" ]]; then
   printf 'Registry and fixtures are valid.\n'
+  exit 0
+fi
+
+if [[ "$MODE" == "self-test" ]]; then
+  self_test_finding_contract
   exit 0
 fi
 

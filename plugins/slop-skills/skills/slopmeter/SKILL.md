@@ -23,6 +23,7 @@ Measure closely, touch nothing. Report only what can actually break, who experie
 3. Without an explicit target, try `git diff @{upstream}...HEAD`, then `git diff main...HEAD`, then `git diff HEAD~1`; include relevant working-tree changes when the range is empty or the user places them in scope.
 4. Read applicable repository instructions, dependency manifests and lockfiles, adjacent wrappers, and relevant tests.
 5. Make a shallow inventory of changed technologies and externally governed behavior. Do not form findings yet.
+6. Build an internal changed-behavior ledger. For every modified user workflow or state transition, record the initiating action, real producer, each normalization, serialization, persistence, and readback boundary, final consumer, and observable success condition. Give one reviewer end-to-end ownership of each row; file- or layer-scoped reviewers may support that owner but cannot replace it.
 
 ## Phase 1 — Build production-shaped local evidence
 
@@ -40,6 +41,12 @@ Complete the identity and runtime inventory for every review. For every changed 
 10. Keep a per-scenario state ledger. On the Ruby side record the input class and shape, active method owner or source, relevant object attributes and identity, dirty/change tracking and association-cache state when the framework exposes them, return value or exception, and the recording fake's exact calls. On the database side record the minimal targeted and related rows before the call, transaction and isolation boundary, affected-row or event counts, rows after the call, and a fresh reload through a new query or connection after commit or rollback. Never infer committed state from an in-memory object.
 11. For transaction, callback, job, or concurrency-sensitive changes, prove the applicable invariants explicitly: no durable partial write or outbound work on rollback; no post-commit job before commit and exactly the intended count afterward; idempotent retry and duplicate handling; and authoritative related-record reload before aggregate decisions. Reproduce a database race through separate real database connections plus a barrier or equivalent controlled interleaving; for a non-database race, use the repository's real storage or synchronization primitive with the same deterministic control. A shared in-memory fake or timing-only thread test cannot prove a database race.
 12. Scope each monkeypatch to one scenario, record the patched boundary's owner or source, and restore it before the next scenario. A runtime patch that reinstates the old implementation may be used only as a negative control after the unmodified base and head are measured; it cannot replace evidence from the changed code.
+
+### Close cross-layer round trips
+
+For changed state that crosses a runtime, transport, cache, URL, or database and later returns, start with a value produced by the real framework or component. Drive it through the exact canonicalizers, encoders, server parsing and normalization, type casting, persistence, fresh read and response, decoding, framework rehydration, and final comparison or selection consumer. Record the value and type after each hop and assert the user-visible postcondition, not only the stored JSON or an intermediate return value.
+
+Derive the smallest matrix from the materially different representation families the changed generic path accepts; do not sample only one type. Include reachable omitted, null, empty, key-type, date/time, precision, ordering, and framework-default forms when they cross different branches or equality behavior. Per-layer green tests, hand-built values on both sides, mocked consumers, or comparisons that reuse one canonicalizer do not prove the round trip.
 
 A test that mocks the changed code, database, serializer, or framework path is not end-to-end evidence. A failed local boot or unavailable safe sample is missing evidence; omit a dependent candidate rather than replacing the replay with static inference.
 
@@ -94,11 +101,13 @@ Keep a finding only when all are true:
 4. The evidence proves the claim for the pinned version and actual code path.
 5. The proposed solution is the smallest sufficient repair.
 
-Prioritize correctness, security, data loss, outages, wrong state, broken workflows, and misleading UI. Treat races, duplicate writes, lost updates, and cache-key mistakes as correctness defects when their trigger and consequence are demonstrated.
+Prioritize correctness, security, data loss, outages, wrong state, broken workflows, and misleading UI. Treat races, duplicate writes, lost updates, and cache-key mistakes as correctness defects when their trigger and consequence are demonstrated. Severity follows the consequence, not the effort needed to prove it: reserve P0 and P1 for critical workflow loss, security or data loss, wrong money or fulfillment, outage, or comparably urgent durable harm; use P2 for a reproducible but bounded workflow or UI defect even when it always triggers.
 
-Do not flag architecture merely because it feels overengineered. Recommend the smallest fix that restores intended behavior; do not prescribe caches, queues, background jobs, parallel workers, sharding, new services, or generalized architecture unless the proven defect requires them.
+Reachability and material product impact are separate gates. For a low-consequence candidate, check normal repository-supported reachability, duration, persistence, fallback, self-correction, and repair surface. A reproduced difference on a crafted, obsolete, bounded, or self-healing path is not a finding unless a product contract, incident, security boundary, or durable consequence makes the repair proportionate.
 
-After closing the proof loop, audit every changed behavior before finalizing. Group symptoms that share one trigger and smallest repair into one finding, but report separately reproducible defects that can occur independently or require different repairs; do not stop after the first valid finding.
+Do not flag architecture merely because it feels overengineered. Recommend the smallest fix that restores intended behavior; do not prescribe caches, queues, background jobs, parallel workers, sharding, new services, or generalized architecture unless the proven defect requires them. If a defect is valid but the proposed repair is broad, retain the defect with a narrower repair. Before proposing a repair that changes state ownership, lifecycle, or canonicalization, exercise it in disposable evidence across adjacent established transitions and confirm that it does not create two owners or change a normal flow.
+
+After closing the proof loop, audit every changed-behavior ledger row before finalizing. Group symptoms that share one trigger and smallest repair into one finding, but report separately reproducible defects that can occur independently or require different repairs; do not stop after the first valid finding. When work is delegated, do not finalize while a requested review, research task, replay, or validation is queued, running, or uncollected. Wait until every item is terminal, collect late responses, reconcile duplicates, apply the product-impact gate, and send one complete final answer rather than partial findings or late fragments.
 
 ### Gate performance
 
@@ -108,26 +117,51 @@ Require a production profile or incident, a realistic repository-established wor
 
 For existing findings, preserve their numbers and P-levels. Verify current code and relevant tests before marking them solved, partially solved, or open. When asked for open findings only, omit solved findings.
 
-For a fresh review, report only supported open findings. If none survive verification, write exactly: `No open product-impacting findings.`
+For a fresh review with no supported open findings, write exactly: `No open product-impacting findings.`
 
 ## Final answer contract
 
-In every Codex chat or CLI response—including PR reviews—use exactly this shape. A PR target alone does not make the turn a dedicated review surface. Only an explicit higher-priority machine-output schema may replace this template.
+In every Codex or Prime Agent chat or CLI response—including PR reviews—use
+exactly this shape when one or more findings are present. A PR target alone does
+not make the turn a dedicated review surface. Only an explicit higher-priority
+machine-output schema may replace this template.
 
 ```markdown
-N. **P# — Product-readable title**
-   **Status: ✅ Solved | 🟡 Partially solved | ❌ Open**
+## Change context
 
-   **Technical problem:** Concrete defect and trigger.
+One concise sentence that identifies the reviewed change and why it exists.
 
-   **Technical solution:** Smallest sufficient fix.
+## Finding 1 — P# — Product-readable title
 
-   **Product impact:** What the customer, merchant, operator, or release experiences.
+**Status:** ✅ Solved | 🟡 Partially solved | ❌ Open
 
-   **Product solution:** The desired behavior after the fix.
+**Technical problem:** Concrete defect and trigger.
+
+**Technical solution:** Smallest sufficient fix.
+
+**Product impact:** What the customer, merchant, operator, or release experiences.
+
+**Product solution:** The desired behavior after the fix.
 ```
 
-Use one short sentence per field whenever possible. Add a second only when needed to explain the trigger. Use the four labels exactly. Do not add a preamble, repeated summary, long evidence dump, or separate sources section.
+Number later headings `## Finding 2`, `## Finding 3`, and so on. Keep findings
+as flat top-level sections. Do not put a complete finding inside an ordered or
+unordered list; nested finding paragraphs render as a congested, narrow block in
+Prime Agent.
+
+The change-context sentence must name the repository or product area and the
+pull request number, branch, or short change purpose. State what the change is
+trying to do, not what Slopmeter did. For example: `Cardzone PR #106 changes
+vault-code loss reconciliation so unusable inventory keeps an explicit reason.`
+Do not use a generic sentence such as `This PR changes several files`, do not
+list findings there, and do not repeat the context inside every finding. The
+context is mandatory when any finding is present, including an existing-finding
+status check. Omit the heading and sentence only for the exact clean verdict.
+
+Use one short sentence per field whenever possible. Add a second only when
+needed to explain the trigger. Use the five labels and heading pattern exactly.
+Do not add another preamble, repeated summary, long evidence dump, or separate
+sources section.
 
 When a reproduced state mismatch has concrete expected and actual values, keep
 that decisive delta in **Technical problem** using the literal comparison form
@@ -135,6 +169,10 @@ that decisive delta in **Technical problem** using the literal comparison form
 paraphrase `got` as `was`, or replace measured evidence with only a generalized
 description of the defect.
 
-Keep verification notes internal. Do not emit generic review fields such as `[P#]` headings, file-and-line titles, `Technical explanation`, `Trigger/input/environment`, `Affected path`, `Confidence`, or `Evidence`. Fold only decisive details into the four required fields.
+Keep verification notes internal. Do not emit generic review fields such as
+`[P#]` headings, file-and-line titles, `Technical explanation`,
+`Trigger/input/environment`, `Affected path`, `Confidence`, or `Evidence`. Fold
+only decisive details into the five required fields.
 
-When external research materially supports a finding, put one direct source link inside the relevant technical sentence.
+When external research materially supports a finding, put one direct source
+link inside the relevant technical sentence.

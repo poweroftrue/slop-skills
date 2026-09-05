@@ -29,7 +29,10 @@ Registry cases, fixtures, prompts, and expectations are owner-controlled. Add,
 remove, rename, or change their semantics only when the user explicitly asks for
 that test change. Runner maintenance must not weaken a verdict or skip a case.
 Cases may also require or forbid command patterns so the gate proves that the
-reviewer performed the safe workflow rather than merely describing it.
+reviewer performed the safe workflow rather than merely describing it. Finding
+answers must begin with one `## Change context` sentence and use flat
+`## Finding N — P# — ...` sections; the same contract keeps Codex and Prime
+Agent output identifiable and readable.
 Cases normally materialize `fixture/base` plus `fixture/head`; an optional
 registry `head` selects a named candidate directory so finding and clean
 variants can share one identical production-shaped base.
@@ -56,6 +59,7 @@ Useful local commands:
 ```bash
 tests/slopmeter/run_e2e.sh --list
 tests/slopmeter/run_e2e.sh --validate
+tests/slopmeter/run_e2e.sh --self-test
 tests/slopmeter/run_e2e.sh --case runtime-formatting-after-app-boot
 tests/slopmeter/run_e2e.sh --harness omp --case runtime-formatting-after-app-boot
 ```
